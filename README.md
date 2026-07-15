@@ -7,7 +7,7 @@ Mit **ignisTab** (vormals intraTab) lässt sich ignis ganz einfach auch in FiveM
 
 ## Installation
 
-1. Neuestes Release-ZIP von der [Releases-Seite](https://github.com/EmergencyForge/intraTab/releases) herunterladen
+1. Neuestes Release-ZIP von der [Releases-Seite](https://github.com/EmergencyForge/ignisTab/releases) herunterladen
 2. Den Ordner `ignisTab` in das `resources`-Verzeichnis des FiveM-Servers entpacken
 3. `config.lua` anpassen (mindestens `Config.BaseURL` und `Config.APIKey`)
 4. `ensure ignisTab` in die `server.cfg` eintragen
