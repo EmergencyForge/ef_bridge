@@ -1,0 +1,152 @@
+name: Build Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Generate bot token
+        id: bot
+        continue-on-error: true
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          token: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
+
+      - name: Extract version
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          echo "version=$VERSION" >> $GITHUB_ENV
+          echo "plain_version=${VERSION#v}" >> $GITHUB_ENV
+
+      - name: Update fxmanifest version and push to main
+        run: |
+          sed -i "s/^version '.*'/version '${{ env.plain_version }}'/" fxmanifest.lua
+          grep "^version" fxmanifest.lua
+
+          git config user.name "ef-sparky[bot]"
+          git config user.email "${{ secrets.BOT_APP_ID }}+ef-sparky[bot]@users.noreply.github.com"
+          git add fxmanifest.lua
+          if ! git diff --staged --quiet; then
+            git commit -m "bump fxmanifest version to ${{ env.plain_version }}"
+            git push origin HEAD:main
+          fi
+
+      - name: Build release ZIP
+        run: |
+          ARCHIVE_NAME="ignisTab-${{ env.version }}.zip"
+
+          # Stage everything into an ignisTab/ folder so the archive
+          # extracts straight into a resources directory.
+          mkdir -p build/ignisTab
+          rsync -a \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude '.gitignore' \
+            --exclude '.gitattributes' \
+            --exclude 'build' \
+            --exclude '*.zip' \
+            --exclude '.vscode' \
+            --exclude '.idea' \
+            --exclude '.qodo' \
+            --exclude '.claude' \
+            --exclude 'CLAUDE.md' \
+            ./ build/ignisTab/
+
+          (cd build && zip -q -r "../$ARCHIVE_NAME" ignisTab)
+
+          echo "archive_name=$ARCHIVE_NAME" >> $GITHUB_ENV
+          echo "archive_size=$(du -h "$ARCHIVE_NAME" | cut -f1)" >> $GITHUB_ENV
+
+      - name: Integrity check (SHA256)
+        run: |
+          CHECKSUM=$(sha256sum "${{ env.archive_name }}" | cut -d' ' -f1)
+          echo "checksum=$CHECKSUM" >> $GITHUB_ENV
+          echo "$CHECKSUM  ${{ env.archive_name }}" > "${{ env.archive_name }}.sha256"
+
+          sha256sum -c "${{ env.archive_name }}.sha256"
+          echo "Integrity OK: $CHECKSUM"
+
+          FILE_COUNT=$(unzip -l "${{ env.archive_name }}" | tail -1 | awk '{print $2}')
+          echo "file_count=$FILE_COUNT" >> $GITHUB_ENV
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            ${{ env.archive_name }}
+            ${{ env.archive_name }}.sha256
+        env:
+          GITHUB_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
+
+      - name: Discord notification (success)
+        if: success()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+          RELEASE_NAME: ${{ github.event.release.name }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+        run: |
+          [ -z "$DISCORD_WEBHOOK" ] && { echo "No webhook configured, skipping"; exit 0; }
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          SHORT_HASH=$(echo "${{ env.checksum }}" | cut -c1-12)
+          jq -n \
+            --arg title "Release ${{ env.version }} wurde veröffentlicht" \
+            --arg name "$RELEASE_NAME" \
+            --arg body "$(echo "$RELEASE_BODY" | head -c 500)" \
+            --arg url "$RELEASE_URL" \
+            --arg version "${{ env.version }}" \
+            --arg size "${{ env.archive_size }}" \
+            --arg files "${{ env.file_count }}" \
+            --arg build "#${{ github.run_number }}" \
+            --arg checksum "$SHORT_HASH" \
+            --arg ts "$TIMESTAMP" \
+            '{embeds: [{
+              title: $title,
+              description: ("**" + $name + "**\n\n" + $body),
+              color: 3066993,
+              url: $url,
+              fields: [
+                {name: "Version", value: ("`" + $version + "`"), inline: true},
+                {name: "ZIP-Größe", value: ("`" + $size + "`"), inline: true},
+                {name: "Dateien", value: $files, inline: true},
+                {name: "Build", value: $build, inline: true},
+                {name: "SHA256", value: ("`" + $checksum + "…`"), inline: true}
+              ],
+              footer: {text: "ignisTab Release Build — Integrität verifiziert ✓"},
+              timestamp: $ts
+            }]}' | curl -s -H "Content-Type: application/json" -d @- "$DISCORD_WEBHOOK"
+
+      - name: Discord notification (failure)
+        if: failure()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+        run: |
+          [ -z "$DISCORD_WEBHOOK" ] && { echo "No webhook configured, skipping"; exit 0; }
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          jq -n \
+            --arg version "${{ env.version }}" \
+            --arg ref "${{ github.ref }}" \
+            --arg url "$RUN_URL" \
+            --arg ts "$TIMESTAMP" \
+            '{embeds: [{
+              title: "Release Build fehlgeschlagen",
+              description: ("Der Build für **" + (if $version != "" then $version else $ref end) + "** ist fehlgeschlagen.\n\n[Build-Log ansehen](" + $url + ")"),
+              color: 15158332,
+              footer: {text: "ignisTab Release Build"},
+              timestamp: $ts
+            }]}' | curl -s -H "Content-Type: application/json" -d @- "$DISCORD_WEBHOOK"
