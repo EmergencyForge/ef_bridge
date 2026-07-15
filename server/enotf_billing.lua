@@ -1,156 +1,178 @@
--- ========================================
--- eNOTF ABRECHNUNGSSYSTEM
--- ========================================
--- Diese Datei stellt eine Schnittstelle zur Verfügung, um freigegebene eNOTF-Protokolle
--- für Abrechnungszwecke abzurufen. Die Daten werden dedupliziert nach Name + Einsatznummer.
+-- eNOTF billing: fetches released eNOTF protocols from ignis so servers
+-- can bill patients. Results are deduplicated by name + mission number.
 --
--- RÜCKGABEFORMAT:
+-- Returned protocol format:
 -- {
 --   {
 --     name = "Max Mustermann",
---     birthdate = "1990-01-15",  -- Format: YYYY-MM-DD
---     transport = true,           -- Boolean: true wenn Transport durchgeführt wurde
---     missionNumber = "ENR_123",  -- Einsatznummer (kann auch ENR_X Format sein)
---     protocolType = 1,           -- Numerisch: Art des Protokolls (0 = Notarzt, 1 = Rettungsdienst, etc.)
---     vehicleCallsign = "RTW 1-82-1" -- String: Rufname des Fahrzeugs
+--     birthdate = "1990-01-15",      -- YYYY-MM-DD
+--     transport = true,              -- whether the patient was transported
+--     missionNumber = "ENR_123",
+--     protocolType = 1,              -- 0 = Notarzt, 1 = Rettungsdienst, ...
+--     vehicleCallsign = "RTW 1-82-1"
 --   },
 --   ...
 -- }
--- ========================================
 
--- Funktion zum Ausführen von MySQL-Queries (nutzt vorhandene Framework-DB-Connection)
 local function ExecuteQuery(query, parameters)
-    local promise = promise.new()
-    
-    -- Versuche oxmysql (QBCore/ESX modern)
+    local p = promise.new()
+
     if GetResourceState('oxmysql') == 'started' then
         exports.oxmysql:execute(query, parameters, function(result)
-            promise:resolve(result)
+            p:resolve(result)
         end)
-    -- Fallback auf mysql-async (ESX legacy)
     elseif MySQL and MySQL.Async then
+        -- mysql-async fallback for older ESX setups
         MySQL.Async.fetchAll(query, parameters, function(result)
-            promise:resolve(result)
+            p:resolve(result)
         end)
     else
         if Config.Debug then
-            print("^1[eNOTF-Billing]^7 Keine MySQL-Resource gefunden! Bitte oxmysql oder mysql-async installieren.")
+            print("^1[eNOTF-Billing]^7 No MySQL resource found. Install oxmysql or mysql-async.")
         end
-        promise:resolve(nil)
+        p:resolve(nil)
     end
-    
-    return Citizen.Await(promise)
+
+    return Citizen.Await(p)
 end
 
--- Stelle sicher, dass URLs HTTPS verwenden (FiveM-Anforderung)
-local function EnsureHttps(url)
-    if not url or url == "" then
-        return url
-    end
-    
-    url = url:match("^%s*(.-)%s*$")
-    
-    if url:lower():sub(1, 7) == "http://" then
-        url = "https://" .. url:sub(8)
-    elseif url:lower():sub(1, 8) ~= "https://" and url:sub(1, 2) ~= "//" then
-        url = "https://" .. url
-    end
-    
-    return url
-end
-
--- Füge trailing slash hinzu
-local function AddTrailingSlash(url)
-    if url and url:sub(-1) ~= "/" then
-        return url .. "/"
-    end
-    return url
-end
-
--- Baue relative URLs basierend auf BaseURL
-local function BuildURL(basePath)
-    local baseURL = EnsureHttps(Config.BaseURL or "")
-    baseURL = AddTrailingSlash(baseURL)
-    
-    if basePath and basePath:sub(1, 1) == "/" then
-        basePath = basePath:sub(2)
-    end
-    
-    return baseURL .. (basePath or "")
-end
-
--- Generiere API-Endpunkt für eNOTF-Abrechnung
 local BillingEndpoint = BuildURL("api/enotf/billing.php")
 
 if Config.Debug then
-    print("^2[eNOTF-Billing]^7 BillingEndpoint generiert: " .. (BillingEndpoint or "FEHLER"))
+    print("^2[eNOTF-Billing]^7 endpoint: " .. (BillingEndpoint or "MISSING"))
 end
 
--- ========================================
--- HAUPTFUNKTION: Abrufen der freigegebenen eNOTF-Protokolle
--- ========================================
+-- Pulls the base number out of mission numbers like "123_1" -> "123"
+local function GetBaseMissionNumber(missionNumber)
+    if not missionNumber then return "" end
+    local baseNumber = missionNumber:match("^(%d+)")
+    return baseNumber or missionNumber
+end
+
+-- Dedup within one response: name + 123, name + 123_1, name + 123_2
+-- must only be billed once.
+local function DeduplicateProtocols(protocols)
+    if not protocols or #protocols == 0 then
+        return {}
+    end
+
+    local seen = {}
+    local deduplicated = {}
+
+    for _, protocol in ipairs(protocols) do
+        local baseNumber = GetBaseMissionNumber(protocol.missionNumber)
+        local key = (protocol.name or "") .. "|" .. baseNumber
+
+        if not seen[key] then
+            seen[key] = true
+            table.insert(deduplicated, protocol)
+        elseif Config.Debug then
+            print("^3[eNOTF-Billing]^7 duplicate skipped: " .. protocol.name .. " + " .. protocol.missionNumber)
+        end
+    end
+
+    if Config.Debug then
+        print("^2[eNOTF-Billing]^7 dedup: " .. #protocols .. " -> " .. #deduplicated .. " protocols")
+    end
+
+    return deduplicated
+end
+
+-- Dedup across requests: drop protocols that are already stored in the
+-- local enotf_billing table.
+local function FilterAlreadyProcessed(protocols)
+    if not protocols or #protocols == 0 then
+        return {}
+    end
+
+    local keys = {}
+    for _, protocol in ipairs(protocols) do
+        local baseNumber = GetBaseMissionNumber(protocol.missionNumber)
+        table.insert(keys, (protocol.name or "") .. "|" .. baseNumber)
+    end
+
+    local placeholders = {}
+    for i = 1, #keys do
+        placeholders[i] = '?'
+    end
+
+    -- mission_number in the DB is expected to be the base number already
+    local query = string.format([[
+        SELECT CONCAT(name, '|', mission_number) as combination_key
+        FROM enotf_billing
+        WHERE CONCAT(name, '|', mission_number) IN (%s)
+    ]], table.concat(placeholders, ','))
+
+    local result = ExecuteQuery(query, keys)
+
+    local processedSet = {}
+    if result then
+        for _, row in ipairs(result) do
+            processedSet[row.combination_key] = true
+        end
+    end
+
+    local filtered = {}
+    for _, protocol in ipairs(protocols) do
+        local baseNumber = GetBaseMissionNumber(protocol.missionNumber)
+        local key = (protocol.name or "") .. "|" .. baseNumber
+
+        if not processedSet[key] then
+            table.insert(filtered, protocol)
+        elseif Config.Debug then
+            print("^3[eNOTF-Billing]^7 already processed, skipped: " .. protocol.name .. " + " .. protocol.missionNumber)
+        end
+    end
+
+    if Config.Debug and #protocols > #filtered then
+        print("^2[eNOTF-Billing]^7 filter: " .. #protocols .. " -> " .. #filtered .. " protocols")
+    end
+
+    return filtered
+end
+
 function GetReleasedENOTFProtocols()
     if not Config.ENOTFBilling or not Config.ENOTFBilling.Enabled then
-        if Config.Debug then
-            print("^3[eNOTF-Billing]^7 Abrechnungssystem ist deaktiviert")
-        end
         return {}
     end
-    
-    if not BillingEndpoint then
-        if Config.Debug then
-            print("^1[eNOTF-Billing]^7 Fehler: BillingEndpoint konnte nicht generiert werden!")
-        end
-        return {}
-    end
-    
-    -- Prüfe API-Key
+
     if not Config.APIKey or Config.APIKey == "" or Config.APIKey == "CHANGE_ME" then
-        print("^1[eNOTF-Billing]^7 ❌ FEHLER: API-Key ist nicht gesetzt!")
-        print("^3[eNOTF-Billing]^7 Bitte setze 'Config.APIKey' in der config.lua")
+        print("^1[eNOTF-Billing]^7 API key is not set, check Config.APIKey in config.lua")
         return {}
     end
-    
+
     if Config.Debug then
-        print("^2[eNOTF-Billing]^7 Abfrage der freigegebenen eNOTF-Protokolle...")
-        print("^2[eNOTF-Billing]^7 API-Endpunkt: " .. BillingEndpoint)
-        print("^2[eNOTF-Billing]^7 API-Key (erste 8 Zeichen): " .. string.sub(Config.APIKey, 1, 8) .. "...")
+        print("^2[eNOTF-Billing]^7 fetching released protocols from " .. BillingEndpoint)
     end
-    
-    local promise = promise.new()
-    
+
+    local p = promise.new()
+
     PerformHttpRequest(BillingEndpoint, function(statusCode, response, headers)
         if statusCode == 200 then
             local success, data = pcall(json.decode, response)
-            
+
             if success and data then
-                if Config.Debug then
-                    print("^2[eNOTF-Billing]^7 " .. (data.count or 0) .. " Protokolle erfolgreich abgerufen")
-                end
-                
-                -- Deduplizierung: Name + Einsatznummer (innerhalb der aktuellen Anfrage)
                 local deduplicatedData = DeduplicateProtocols(data.protocols or {})
-                
-                -- Filter: Bereits verarbeitete Protokolle ausschließen (über mehrere Anfragen)
+
                 if Config.ENOTFBilling.FilterProcessed then
                     deduplicatedData = FilterAlreadyProcessed(deduplicatedData)
                 end
-                
-                promise:resolve(deduplicatedData)
+
+                p:resolve(deduplicatedData)
             else
                 if Config.Debug then
-                    print("^1[eNOTF-Billing]^7 Fehler beim Parsen der JSON-Antwort")
+                    print("^1[eNOTF-Billing]^7 failed to parse JSON response")
                 end
-                promise:resolve({})
+                p:resolve({})
             end
         else
             if Config.Debug then
-                print("^1[eNOTF-Billing]^7 Fehler beim Abrufen der Daten. Statuscode: " .. statusCode)
+                print("^1[eNOTF-Billing]^7 request failed, status code: " .. statusCode)
                 if response then
-                    print("^1[eNOTF-Billing]^7 Antwort: " .. response)
+                    print("^1[eNOTF-Billing]^7 response: " .. response)
                 end
             end
-            promise:resolve({})
+            p:resolve({})
         end
     end, 'POST', json.encode({
         intraRP_API_Key = Config.APIKey,
@@ -159,226 +181,94 @@ function GetReleasedENOTFProtocols()
         ['Content-Type'] = 'application/json',
         ['User-Agent'] = 'FiveM-eNOTF-Billing/1.0'
     })
-    
-    return Citizen.Await(promise)
+
+    return Citizen.Await(p)
 end
 
--- ========================================
--- HILFSFUNKTION: Basis-Einsatznummer extrahieren
--- ========================================
-local function GetBaseMissionNumber(missionNumber)
-    if not missionNumber then return "" end
-    -- Extrahiere die Basis-Nummer vor dem "_" (z.B. "123" aus "123_1")
-    local baseNumber = missionNumber:match("^(%d+)")
-    return baseNumber or missionNumber
-end
-
--- ========================================
--- DEDUPLIZIERUNG: Name + Basis-Einsatznummer
--- ========================================
--- Verhindert mehrfache Abrechnung: Name + 123, Name + 123_1, Name + 123_2 = nur 1x
-function DeduplicateProtocols(protocols)
-    if not protocols or #protocols == 0 then
-        return {}
-    end
-    
-    local uniqueMap = {}
-    local deduplicated = {}
-    
-    for _, protocol in ipairs(protocols) do
-        -- Extrahiere Basis-Einsatznummer (vor dem "_")
-        local baseNumber = GetBaseMissionNumber(protocol.missionNumber)
-        
-        -- Erstelle eindeutigen Schlüssel: Name + Basis-Einsatznummer
-        local key = (protocol.name or "") .. "|" .. baseNumber
-        
-        if not uniqueMap[key] then
-            uniqueMap[key] = true
-            table.insert(deduplicated, protocol)
-        else
-            if Config.Debug then
-                print("^3[eNOTF-Billing]^7 Duplikat ignoriert: " .. protocol.name .. " + " .. protocol.missionNumber .. " (Basis: " .. baseNumber .. ")")
-            end
-        end
-    end
-    
-    if Config.Debug then
-        print("^2[eNOTF-Billing]^7 Deduplizierung: " .. #protocols .. " -> " .. #deduplicated .. " Protokolle")
-    end
-    
-    return deduplicated
-end
-
--- ========================================
--- FILTER: Bereits verarbeitete Protokolle ausschließen
--- ========================================
--- Prüft gegen die lokale FiveM-Datenbank, welche Protokolle bereits verarbeitet wurden
-function FilterAlreadyProcessed(protocols)
-    if not protocols or #protocols == 0 then
-        return {}
-    end
-    
-    -- Erstelle Liste aller Kombinationen aus Name + Basis-Einsatznummer
-    local keys = {}
-    for _, protocol in ipairs(protocols) do
-        local baseNumber = GetBaseMissionNumber(protocol.missionNumber)
-        local key = (protocol.name or "") .. "|" .. baseNumber
-        table.insert(keys, key)
-    end
-    
-    -- Erstelle Platzhalter für SQL IN-Klausel
-    local placeholders = {}
-    for i = 1, #keys do
-        table.insert(placeholders, '?')
-    end
-    
-    -- Hinweis: mission_number in DB sollte bereits die Basis-Nummer sein (ohne _X Suffix)
-    local query = string.format([[
-        SELECT CONCAT(name, '|', mission_number) as combination_key
-        FROM enotf_billing
-        WHERE CONCAT(name, '|', mission_number) IN (%s)
-    ]], table.concat(placeholders, ','))
-    
-    local result = ExecuteQuery(query, keys)
-    
-    -- Erstelle Set der bereits verarbeiteten Kombinationen
-    local processedSet = {}
-    if result then
-        for _, row in ipairs(result) do
-            processedSet[row.combination_key] = true
-        end
-    end
-    
-    -- Filtere bereits verarbeitete Protokolle heraus
-    local filtered = {}
-    for _, protocol in ipairs(protocols) do
-        local baseNumber = GetBaseMissionNumber(protocol.missionNumber)
-        local key = (protocol.name or "") .. "|" .. baseNumber
-        
-        if not processedSet[key] then
-            table.insert(filtered, protocol)
-        else
-            if Config.Debug then
-                print("^3[eNOTF-Billing]^7 Bereits verarbeitet, übersprungen: " .. protocol.name .. " + " .. protocol.missionNumber .. " (Basis: " .. baseNumber .. ")")
-            end
-        end
-    end
-    
-    if Config.Debug and #protocols > #filtered then
-        print("^2[eNOTF-Billing]^7 Filter: " .. #protocols .. " -> " .. #filtered .. " Protokolle (bereits verarbeitet ausgeschlossen)")
-    end
-    
-    return filtered
-end
-
--- ========================================
--- EXPORT: Für externe Verwendung
--- ========================================
 exports('getReleasedENOTFProtocols', GetReleasedENOTFProtocols)
 
--- ========================================
--- SERVER CALLBACK: Für Clientseitige Abfrage
--- ========================================
 RegisterServerEvent('enotf-billing:requestProtocols')
 AddEventHandler('enotf-billing:requestProtocols', function()
     local src = source
     local protocols = GetReleasedENOTFProtocols()
-    
+
     TriggerClientEvent('enotf-billing:receiveProtocols', src, protocols)
 end)
 
--- ========================================
--- AUTOMATISCHE SYNC-FUNKTION (optional)
--- ========================================
+-- Optional background sync
 if Config.ENOTFBilling and Config.ENOTFBilling.Enabled and Config.ENOTFBilling.AutoSync then
-    Citizen.CreateThread(function()
+    CreateThread(function()
         while true do
-            Citizen.Wait(Config.ENOTFBilling.SyncInterval or 300000) -- Standard: 5 Minuten
-            
+            Wait(Config.ENOTFBilling.SyncInterval or 900000)
+
             local protocols = GetReleasedENOTFProtocols()
-            
+
             if protocols and #protocols > 0 then
-                -- Trigger Custom-Handler in billing-custom.lua
+                -- handled by whatever listens in billing-custom.lua
                 TriggerEvent('enotf-billing:autoSync', protocols)
             end
         end
     end)
 end
 
--- ========================================
--- MANUELLER COMMAND FÜR ADMINISTRATOREN
--- ========================================
+-- Manual sync command for admins
 RegisterCommand('enotf-billing-sync', function(source, args, rawCommand)
     local src = source
-    
-    -- Überprüfe Admin-Rechte (passe dies an dein Framework an)
-    if src > 0 then
-        -- Hier kannst du Admin-Checks hinzufügen
-    end
-    
-    print("^2[eNOTF-Billing]^7 Manueller Sync gestartet von Source: " .. src)
-    
+
+    print("^2[eNOTF-Billing]^7 manual sync started by source " .. src)
+
     local protocols = GetReleasedENOTFProtocols()
-    
+
     if protocols and #protocols > 0 then
-        print("^2[eNOTF-Billing]^7 " .. #protocols .. " Protokolle abgerufen:")
-        
+        print("^2[eNOTF-Billing]^7 " .. #protocols .. " protocols fetched:")
+
         for i, protocol in ipairs(protocols) do
-            print(string.format("  [%d] %s | Geburtsdatum: %s | Transport: %s | Einsatz: %s | Protokollart: %s | Fahrzeug: %s",
+            print(string.format("  [%d] %s | birthdate: %s | transport: %s | mission: %s | type: %s | vehicle: %s",
                 i,
                 protocol.name,
                 protocol.birthdate,
-                protocol.transport and "Ja" or "Nein",
+                protocol.transport and "yes" or "no",
                 protocol.missionNumber,
                 protocol.protocolType or "N/A",
                 protocol.vehicleCallsign or "N/A"
             ))
         end
-        
-        -- Trigger Custom-Handler in billing-custom.lua
+
         TriggerEvent('enotf-billing:manualSync', protocols, src)
-        
+
         if src > 0 then
             TriggerClientEvent('chat:addMessage', src, {
                 args = {"^2[eNOTF-Billing]", "Sync erfolgreich: " .. #protocols .. " Protokolle abgerufen"}
             })
         end
     else
-        print("^3[eNOTF-Billing]^7 Keine Protokolle gefunden oder Fehler beim Abrufen")
-        
+        print("^3[eNOTF-Billing]^7 no protocols found or request failed")
+
         if src > 0 then
             TriggerClientEvent('chat:addMessage', src, {
                 args = {"^1[eNOTF-Billing]", "Keine Protokolle gefunden"}
             })
         end
     end
-end, false)
+end, true)
 
--- ========================================
--- AUTOMATISCHE DATENBANK-TABELLEN-PRÜFUNG
--- ========================================
+-- Creates the enotf_billing table on first start if FilterProcessed is on
 if Config.ENOTFBilling and Config.ENOTFBilling.Enabled and Config.ENOTFBilling.FilterProcessed then
-    Citizen.CreateThread(function()
-        Citizen.Wait(2000) -- Warte 2 Sekunden für Datenbankverbindung
-        
-        if Config.Debug then
-            print("^2[eNOTF-Billing]^7 Prüfe Datenbank-Tabelle 'enotf_billing'...")
-        end
-        
-        -- Prüfe, ob Tabelle existiert
+    CreateThread(function()
+        Wait(2000) -- let the DB connection come up
+
         local checkQuery = [[
-            SELECT COUNT(*) as count 
-            FROM information_schema.TABLES 
-            WHERE TABLE_NAME = 'enotf_billing' 
+            SELECT COUNT(*) as count
+            FROM information_schema.TABLES
+            WHERE TABLE_NAME = 'enotf_billing'
             AND TABLE_SCHEMA = DATABASE()
         ]]
-        
+
         local result = ExecuteQuery(checkQuery, {})
-        
+
         if result and result[1] and result[1].count == 0 then
-            print("^3[eNOTF-Billing]^7 Tabelle 'enotf_billing' nicht gefunden, erstelle automatisch...")
-            
-            -- Erstelle Tabelle
+            print("^3[eNOTF-Billing]^7 table 'enotf_billing' not found, creating it...")
+
             local createQuery = [[
                 CREATE TABLE IF NOT EXISTS enotf_billing (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -398,23 +288,22 @@ if Config.ENOTFBilling and Config.ENOTFBilling.Enabled and Config.ENOTFBilling.F
                     INDEX idx_processed (processed)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             ]]
-            
+
             local createResult = ExecuteQuery(createQuery, {})
-            
+
             if createResult ~= nil then
-                print("^2[eNOTF-Billing]^7 ✅ Tabelle 'enotf_billing' erfolgreich erstellt!")
+                print("^2[eNOTF-Billing]^7 table 'enotf_billing' created")
             else
-                print("^1[eNOTF-Billing]^7 ❌ Fehler beim Erstellen der Tabelle 'enotf_billing'!")
-                print("^1[eNOTF-Billing]^7 Bitte erstelle die Tabelle manuell (siehe sql_examples.sql)")
+                print("^1[eNOTF-Billing]^7 failed to create table 'enotf_billing', please create it manually")
             end
         elseif result and result[1] and result[1].count > 0 then
             if Config.Debug then
-                print("^2[eNOTF-Billing]^7 ✅ Tabelle 'enotf_billing' existiert bereits")
+                print("^2[eNOTF-Billing]^7 table 'enotf_billing' exists")
             end
         else
-            print("^1[eNOTF-Billing]^7 ⚠️ Konnte Tabelle nicht prüfen. Stelle sicher, dass eine MySQL-Datenbank verbunden ist.")
+            print("^1[eNOTF-Billing]^7 could not check for the billing table, is a MySQL database connected?")
         end
     end)
 end
 
-print("^2[eNOTF-Billing]^7 Abrechnungssystem geladen")
+print("^2[eNOTF-Billing]^7 billing module loaded")

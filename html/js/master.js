@@ -1,34 +1,26 @@
-// ==========================================
-// MASTER.JS - NUI Orchestrierung für mehrere Tablets
-// ==========================================
+// master.js — NUI orchestration for both tablets.
+// Decides which tablet container to show and relays messages between
+// the game client and the tablet scripts.
 
-// Debug mode - set to false to disable all console logs
+// Debug mode - set to true to enable console logs
 window.DEBUG = false;
 
 let currentTablet = null;
 let isTabletOpen = false;
 let characterData = null;
 
-if (DEBUG) console.log("[Master] Loading master.js...");
-
 // ==========================================
-// TABLET CONTROL FUNCTIONS
+// TABLET CONTROL
 // ==========================================
 
-/**
- * Zeigt ein Tablet an und versteckt andere
- * eNOTF → #tabletContainer
- * FireTab → #firetabContainer
- */
+// eNOTF → #tabletContainer, FireTab → #firetabContainer
 function showTablet(tabletType) {
   const enotf = document.getElementById("tabletContainer");
   const firetab = document.getElementById("firetabContainer");
 
-  // Verstecke alle erst
   if (enotf) enotf.classList.remove("active");
   if (firetab) firetab.classList.remove("active");
 
-  // Zeige das richtige
   const normalized = (tabletType + "").toLowerCase();
 
   if (normalized === "enotf") {
@@ -58,47 +50,40 @@ function hideAllTablets() {
 
   currentTablet = null;
   isTabletOpen = false;
-  if (DEBUG) console.log("[Master] All tablets hidden");
 }
 
 function closeTablet() {
   if (DEBUG) console.log("[Master] closeTablet() called");
+  const closingType = currentTablet;
   hideAllTablets();
 
-  // Reset cursor explicitly
   document.body.style.cursor = "none";
 
-  // Notify server
-  // Use dynamic resource name to ensure correct NUI callback routing
+  // dynamic resource name so the NUI callback hits the right resource
   fetch(`https://${GetParentResourceName()}/closeTablet`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ tabletType: currentTablet }),
+    body: JSON.stringify({ tabletType: closingType }),
   }).catch((err) => {
     if (DEBUG) console.log("[Master] Fetch error:", err);
   });
 }
 
+// The header buttons call these; dispatch to whichever tablet is open
 function goHome() {
-  if (DEBUG) console.log("[Master] goHome() called for:", currentTablet);
+  if (currentTablet === "enotf" && typeof window.goHomeENOTF === "function") {
+    window.goHomeENOTF();
+  } else if (
+    currentTablet === "firetab" &&
+    typeof window.goHomeFireTab === "function"
+  ) {
+    window.goHomeFireTab();
+  }
 }
 
 function goBack() {
-  if (DEBUG) console.log("[Master] goBack() called for:", currentTablet);
-
-  // Get the correct iframe based on current tablet
-  const iframe =
-    currentTablet === "enotf"
-      ? document.getElementById("tabletScreen")
-      : document.getElementById("firetabScreen");
-
-  if (iframe && iframe.contentWindow) {
-    try {
-      iframe.contentWindow.history.back();
-      if (DEBUG) console.log("[Master] Navigated back in iframe history");
-    } catch (e) {
-      if (DEBUG) console.error("[Master] Error navigating back:", e);
-    }
+  if (currentTablet === "enotf" && typeof window.goBackENOTF === "function") {
+    window.goBackENOTF();
   }
 }
 
@@ -113,7 +98,6 @@ window.addEventListener("message", function (event) {
 
   if (DEBUG) console.log("[Master] NUI message received:", data);
 
-  // Handle openTablet message from server
   if (data.type === "openTablet") {
     const tabletType = data.tabletType; // "eNOTF" or "FireTab"
     const charData = data.characterData;
@@ -122,17 +106,14 @@ window.addEventListener("message", function (event) {
     const normalized = (tabletType + "").toLowerCase();
 
     if (normalized === "firetab") {
-      // FireTab - use firetab.js function
-      if (DEBUG) console.log("[Master] Showing FireTab container");
       showTablet("firetab");
 
-      // Wait a tiny bit for DOM to update before calling openFireTablet
+      // give the DOM a moment before firetab.js touches the elements
       setTimeout(() => {
         if (
           window.openFireTablet &&
           typeof window.openFireTablet === "function"
         ) {
-          if (DEBUG) console.log("[Master] Calling openFireTablet");
           window.openFireTablet(charData, url);
         } else {
           if (DEBUG)
@@ -140,49 +121,41 @@ window.addEventListener("message", function (event) {
         }
       }, 10);
     } else if (normalized === "enotf") {
-      // eNOTF - use script.js function
       showTablet("enotf");
       if (window.openTablet && typeof window.openTablet === "function") {
-        if (DEBUG) console.log("[Master] Calling openTablet for enotf");
         window.openTablet(charData, url);
       }
     }
   }
 
-  // Handle close messages
   else if (data.type === "closeTablet") {
     const reqType = (data.tabletType || "").toLowerCase();
     const curType = (currentTablet || "").toLowerCase();
 
-    // Only close if type matches current tablet or no type provided
+    // only close when the type matches (or none was given)
     if (!reqType || !curType || reqType === curType) {
-      if (DEBUG)
-        console.log(
-          `[Master] closeTablet message for ${reqType || "any"}, closing.`,
-        );
       closeTablet();
-    } else {
-      if (DEBUG)
-        console.log(
-          `[Master] closeTablet message for ${reqType}, ignored; current=${curType}`,
-        );
+    } else if (DEBUG) {
+      console.log(
+        `[Master] closeTablet message for ${reqType}, ignored; current=${curType}`,
+      );
     }
   }
 });
 
 // ==========================================
-// SESSION IDENTIFICATION (postMessage from PHP iframe)
+// SESSION IDENTIFICATION
 // ==========================================
 
-// Listen for postMessage from the PHP iframe (_head.php sends session_id)
+// The PHP page inside the iframe posts its session_id up to us; forward
+// it to the game client so the server can identify the character.
 window.addEventListener("message", function (event) {
   const data = event.data;
   if (!data || !data.type) return;
 
   if (data.type === "intraRP_session" && data.session_id) {
-    if (DEBUG) console.log("[Master] Received PHP session_id via postMessage:", data.session_id);
+    if (DEBUG) console.log("[Master] Received PHP session_id via postMessage");
 
-    // Forward session_id to FiveM client via NUI callback
     fetch(`https://${GetParentResourceName()}/sessionIdentify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -193,8 +166,6 @@ window.addEventListener("message", function (event) {
   }
 });
 
-// Note: ESC handling is managed in client Lua to prevent unintended
-// auto-close events from the DOM. NUI will only close via explicit
-// messages or UI controls.
-
-if (DEBUG) console.log("[Master] Initialization complete");
+// ESC handling lives in the client Lua so the DOM can't trigger
+// accidental closes; the NUI only closes via explicit messages or the
+// UI controls.

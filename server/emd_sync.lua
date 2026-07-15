@@ -1,68 +1,33 @@
--- ========================================
--- URL HELPER FUNKTIONEN
--- ========================================
-local function EnsureHttps(url)
-    if not url or url == "" then
-        return url
-    end
-    url = url:match("^%s*(.-)%s*$")
-    if url:lower():sub(1, 7) == "http://" then
-        url = "https://" .. url:sub(8)
-        if Config.Debug then
-            print("^3[EMD-Sync]^7 URL converted to HTTPS: " .. url)
-        end
-    elseif url:lower():sub(1, 8) ~= "https://" and url:sub(1, 2) ~= "//" then
-        url = "https://" .. url
-        if Config.Debug then
-            print("^3[EMD-Sync]^7 HTTPS prefix added to URL: " .. url)
-        end
-    end
-    return url
-end
+-- EMD sync heartbeat: bundles dispatch data, status updates and situation
+-- reports into a single periodic request against the ignis backend and
+-- applies whatever the backend sends back.
 
-local function AddTrailingSlash(url)
-    if url and url:sub(-1) ~= "/" then
-        return url .. "/"
-    end
-    return url
-end
-
-local function BuildURL(basePath)
-    local baseURL = EnsureHttps(Config.BaseURL or "")
-    baseURL = AddTrailingSlash(baseURL)
-    if basePath and basePath:sub(1, 1) == "/" then
-        basePath = basePath:sub(2)
-    end
-    return baseURL .. (basePath or "")
-end
-
--- Generiere PHPEndpoint einmalig beim Start
 local PHPEndpoint = BuildURL("api/emd/sync.php")
 
 if Config.Debug then
-    print("^2[EMD-Sync]^7 PHPEndpoint generiert: " .. (PHPEndpoint or "FEHLER"))
+    print("^2[EMD-Sync]^7 endpoint: " .. (PHPEndpoint or "MISSING"))
 end
 
 -- ========================================
--- DATENBANK HILFSFUNKTIONEN
+-- DATABASE HELPER
 -- ========================================
 local function ExecuteQuery(query, parameters)
-    local promise = promise.new()
+    local p = promise.new()
     if GetResourceState('oxmysql') == 'started' then
         exports.oxmysql:execute(query, parameters, function(result)
-            promise:resolve(result)
+            p:resolve(result)
         end)
     elseif MySQL and MySQL.Async then
         MySQL.Async.fetchAll(query, parameters, function(result)
-            promise:resolve(result)
+            p:resolve(result)
         end)
     else
         if Config.Debug then
-            print("^1[EMD-Sync]^7 Keine MySQL-Resource gefunden! Bitte oxmysql oder mysql-async installieren.")
+            print("^1[EMD-Sync]^7 No MySQL resource found. Install oxmysql or mysql-async.")
         end
-        promise:resolve(nil)
+        p:resolve(nil)
     end
-    return Citizen.Await(promise)
+    return Citizen.Await(p)
 end
 
 -- ========================================
@@ -72,19 +37,19 @@ local currentTick = 0
 local isSyncing = false
 local lastStatusId = 0
 
--- Fallback Status Queue
+-- Statuses without a dispatch get queued here and ride along with the
+-- next heartbeat.
 local fallbackStatusQueue = {}
 local pendingFallbackStatuses = nil
 
--- Mannedvehicles Cache (pro Tick)
+-- mannedvehicles() result cached per tick to avoid duplicate export calls
 local cachedMannedVehicles = nil
 local cachedMannedVehiclesTick = -1
 
 -- ========================================
--- RESPONSE-PROZESSOREN (PHP -> FiveM)
+-- RESPONSE PROCESSORS (PHP -> FiveM)
 -- ========================================
 
--- Lagemeldungen aus PHP-Response in emergencydispatch einpflegen
 local function ProcessSituationReports(responseData)
     if not responseData or not responseData.situation_reports then
         return
@@ -106,14 +71,8 @@ local function ProcessSituationReports(responseData)
 
                     if success and result then
                         totalSent = totalSent + 1
-                        if Config.Debug then
-                            print("^2[Heartbeat]^7 Lagemeldung für Einsatz #" .. einsatznummer .. " eingepflegt: " .. text)
-                        end
                     else
                         totalFailed = totalFailed + 1
-                        if Config.Debug then
-                            print("^1[Heartbeat]^7 Fehler beim Einpflegen der Lagemeldung für Einsatz #" .. einsatznummer)
-                        end
                     end
                 end
             end
@@ -121,11 +80,10 @@ local function ProcessSituationReports(responseData)
     end
 
     if Config.Debug and (totalSent > 0 or totalFailed > 0) then
-        print("^2[Heartbeat]^7 Lagemeldungen verarbeitet: " .. totalSent .. " erfolgreich, " .. totalFailed .. " fehlgeschlagen")
+        print("^2[Heartbeat]^7 situation reports processed: " .. totalSent .. " ok, " .. totalFailed .. " failed")
     end
 end
 
--- Statusänderungen von PHP (FireTab) auf Clients anwenden
 local function FindPlayerSourceByVehicleName(vehicleName)
     local success, mannedVehicles = pcall(function()
         return exports['emergencydispatch']:mannedvehicles()
@@ -160,26 +118,22 @@ local function ProcessStatusChanges(statusChanges)
             local playerSource = FindPlayerSourceByVehicleName(vehicleName)
 
             if playerSource then
-                TriggerClientEvent('intraTab:applyStatus', playerSource, tostring(status))
+                TriggerClientEvent('ignisTab:applyStatus', playerSource, tostring(status))
                 applied = applied + 1
-                if Config.Debug then
-                    print("^2[Heartbeat]^7 Status '" .. status .. "' an Spieler " .. playerSource .. " gesendet (Fahrzeug: " .. vehicleName .. ")")
-                end
             else
                 notFound = notFound + 1
                 if Config.Debug then
-                    print("^3[Heartbeat]^7 Kein Spieler für Fahrzeug '" .. vehicleName .. "' gefunden (Status: " .. status .. ")")
+                    print("^3[Heartbeat]^7 no player found for vehicle '" .. vehicleName .. "' (status: " .. status .. ")")
                 end
             end
         end
     end
 
     if Config.Debug and (applied > 0 or notFound > 0) then
-        print("^2[Heartbeat]^7 Statusänderungen verarbeitet: " .. applied .. " angewendet, " .. notFound .. " ohne Spieler")
+        print("^2[Heartbeat]^7 status changes processed: " .. applied .. " applied, " .. notFound .. " without player")
     end
 end
 
--- Patientendaten aus PHP-Response in emergencydispatch einpflegen
 local function ProcessPatientData(responseData)
     if not responseData or not responseData.patient_updates then
         return
@@ -189,12 +143,12 @@ local function ProcessPatientData(responseData)
     local totalFailed = 0
 
     for key, patient in pairs(responseData.patient_updates) do
-        -- Key kann "12345" oder "12345_1" sein -> Basis-Einsatznummer extrahieren
+        -- keys look like "12345" or "12345_1", we only want the base number
         local baseNummer = tostring(key):match("^(%d+)")
         local einsatznummer = tonumber(baseNummer)
         if not einsatznummer then
             if Config.Debug then
-                print("^3[Heartbeat]^7 Ungültige Einsatznummer: " .. tostring(key) .. " - übersprungen")
+                print("^3[Heartbeat]^7 invalid mission number: " .. tostring(key) .. " - skipped")
             end
             goto continue
         end
@@ -202,12 +156,12 @@ local function ProcessPatientData(responseData)
         local vorname = patient.vorname or ""
         local nachname = patient.nachname or ""
         local alter = tostring(patient.alter or "")
-        local pzc = ""  -- PZC nicht in PHP-Response
+        local pzc = "" -- not part of the PHP response
         local funkrufname = patient.funkrufname or ""
         local transportziel = patient.transportziel or ""
 
         if vorname ~= "" and nachname ~= "" then
-            local success, result = pcall(function()
+            local success = pcall(function()
                 return exports['emergencydispatch']:emf_patient_add(
                     einsatznummer,
                     vorname,
@@ -221,33 +175,22 @@ local function ProcessPatientData(responseData)
 
             if success then
                 totalAdded = totalAdded + 1
-                if Config.Debug then
-                    print("^2[Heartbeat]^7 Patient " .. vorname .. " " .. nachname .. " für Einsatz #" .. einsatznummer .. " eingepflegt")
-                end
             else
                 totalFailed = totalFailed + 1
-                if Config.Debug then
-                    print("^1[Heartbeat]^7 Fehler beim Einpflegen des Patienten für Einsatz #" .. einsatznummer .. ": " .. tostring(result))
-                end
-            end
-        else
-            if Config.Debug then
-                print("^3[Heartbeat]^7 Patient für Einsatz #" .. einsatznummer .. " übersprungen (Vor-/Nachname fehlt)")
             end
         end
         ::continue::
     end
 
     if Config.Debug and (totalAdded > 0 or totalFailed > 0) then
-        print("^2[Heartbeat]^7 Patientendaten verarbeitet: " .. totalAdded .. " eingepflegt, " .. totalFailed .. " fehlgeschlagen")
+        print("^2[Heartbeat]^7 patient data processed: " .. totalAdded .. " added, " .. totalFailed .. " failed")
     end
 end
 
 -- ========================================
--- DATA COLLECTOR FUNKTIONEN
+-- DATA COLLECTORS
 -- ========================================
 
--- Mannedvehicles mit Cache pro Tick (vermeidet redundante Export-Calls)
 local function GetMannedVehiclesCached(tick)
     if tick == cachedMannedVehiclesTick and cachedMannedVehicles then
         return cachedMannedVehicles
@@ -260,26 +203,22 @@ local function GetMannedVehiclesCached(tick)
     if success and result then
         cachedMannedVehicles = result
         cachedMannedVehiclesTick = tick
-        if Config.Debug then
-            print("^2[Heartbeat]^7 " .. #result .. " besetzte Fahrzeuge abgerufen (Tick " .. tick .. ")")
-        end
         return result
     end
 
     if Config.Debug then
-        print("^1[Heartbeat]^7 Fehler beim Abrufen von mannedvehicles()")
+        print("^1[Heartbeat]^7 mannedvehicles() call failed")
     end
     return nil
 end
 
--- Dispatch-Details aus emd_dispatchlist
 local function GetDispatchListDetails(dispatchNumbers)
     if not dispatchNumbers or #dispatchNumbers == 0 then
         return {}
     end
     local placeholders = {}
     for i = 1, #dispatchNumbers do
-        table.insert(placeholders, '?')
+        placeholders[i] = '?'
     end
     local query = string.format([[
         SELECT id, number, dispatch
@@ -287,13 +226,9 @@ local function GetDispatchListDetails(dispatchNumbers)
         WHERE number IN (%s)
     ]], table.concat(placeholders, ','))
     local result = ExecuteQuery(query, dispatchNumbers)
-    if Config.Debug and result then
-        print("^2[Heartbeat]^7 " .. #result .. " Dispatch-Details aus emd_dispatchlist gefunden")
-    end
     return result or {}
 end
 
--- Lagemeldungen für eine Einsatznummer
 local function GetLagemeldungen(einsatznummer)
     if not einsatznummer then
         return nil
@@ -303,21 +238,13 @@ local function GetLagemeldungen(einsatznummer)
     end)
     if not success then
         if Config.Debug then
-            print("^1[Heartbeat]^7 Fehler beim Abrufen der Lagemeldungen für Einsatz " .. tostring(einsatznummer))
+            print("^1[Heartbeat]^7 failed to fetch situation reports for mission " .. tostring(einsatznummer))
         end
         return nil
-    end
-    if Config.Debug and lagemeldungen then
-        local count = 0
-        if type(lagemeldungen) == 'table' then
-            count = #lagemeldungen
-        end
-        print("^2[Heartbeat]^7 " .. count .. " Lagemeldung(en) für Einsatz " .. tostring(einsatznummer) .. " abgerufen")
     end
     return lagemeldungen
 end
 
--- Lagemeldungen für mehrere Einsatznummern
 local function GetAllLagemeldungen(dispatchNumbers)
     if not dispatchNumbers or #dispatchNumbers == 0 then
         return {}
@@ -329,15 +256,9 @@ local function GetAllLagemeldungen(dispatchNumbers)
             lagemeldungMap[tostring(einsatznummer)] = lagemeldungen
         end
     end
-    if Config.Debug then
-        local count = 0
-        for _ in pairs(lagemeldungMap) do count = count + 1 end
-        print("^2[Heartbeat]^7 Lagemeldungen für " .. count .. " Einsätze abgerufen")
-    end
     return lagemeldungMap
 end
 
--- Letzte Status-ID laden
 local function LoadLastStatusId()
     if not Config.EMDSync or not Config.EMDSync.StatusSync or not Config.EMDSync.StatusSync.Enabled then
         return
@@ -351,28 +272,36 @@ local function LoadLastStatusId()
     if result and result[1] and result[1].max_id then
         lastStatusId = result[1].max_id
         if Config.Debug then
-            print("^2[Heartbeat]^7 Letzte Status-ID geladen: " .. lastStatusId)
+            print("^2[Heartbeat]^7 last status id loaded: " .. lastStatusId)
         end
     end
 end
 
--- Neue Statusmeldungen aus DB
 local function GetNewStatusMessages()
     if not Config.EMDSync or not Config.EMDSync.StatusSync or not Config.EMDSync.StatusSync.Enabled then
         return nil
     end
-    local statusList = table.concat(Config.EMDSync.StatusSync.SyncStatuses, "','")
+
+    local syncStatuses = Config.EMDSync.StatusSync.SyncStatuses
+    local placeholders = {}
+    local params = { lastStatusId }
+    for i, status in ipairs(syncStatuses) do
+        placeholders[i] = '?'
+        params[i + 1] = status
+    end
+
     local query = string.format([[
         SELECT id, number, date, time, sender, type, text
         FROM %s
         WHERE id > ?
         AND type = 'status'
-        AND text IN ('%s')
+        AND text IN (%s)
         ORDER BY id ASC
-    ]], Config.EMDSync.StatusSync.SourceTable, statusList)
-    local result = ExecuteQuery(query, {lastStatusId})
+    ]], Config.EMDSync.StatusSync.SourceTable, table.concat(placeholders, ','))
+
+    local result = ExecuteQuery(query, params)
     if Config.Debug and result and #result > 0 then
-        print("^2[Heartbeat]^7 " .. #result .. " neue Statusmeldungen gefunden")
+        print("^2[Heartbeat]^7 " .. #result .. " new status messages found")
     end
     return result
 end
@@ -389,9 +318,6 @@ local function QueueFallbackStatus(vehicleName, status, time)
         date = os.date('%d.%m.%Y'),
         queued_at = os.time()
     })
-    if Config.Debug then
-        print("^2[Heartbeat]^7 Fallback-Status in Queue: " .. tostring(vehicleName) .. " -> " .. tostring(status) .. " (Queue: " .. #fallbackStatusQueue .. ")")
-    end
 end
 
 local function DrainFallbackStatusQueue()
@@ -400,9 +326,6 @@ local function DrainFallbackStatusQueue()
     end
     pendingFallbackStatuses = fallbackStatusQueue
     fallbackStatusQueue = {}
-    if Config.Debug then
-        print("^2[Heartbeat]^7 " .. #pendingFallbackStatuses .. " Fallback-Status aus Queue entnommen")
-    end
     return pendingFallbackStatuses
 end
 
@@ -410,6 +333,8 @@ local function ConfirmFallbackStatuses()
     pendingFallbackStatuses = nil
 end
 
+-- Puts drained statuses back at the front of the queue after a failed
+-- request so they aren't lost.
 local function RestoreFallbackStatuses()
     if pendingFallbackStatuses then
         for i = #pendingFallbackStatuses, 1, -1 do
@@ -417,23 +342,21 @@ local function RestoreFallbackStatuses()
         end
         pendingFallbackStatuses = nil
         if Config.Debug then
-            print("^3[Heartbeat]^7 Fallback-Status zurück in Queue (HTTP-Fehler)")
+            print("^3[Heartbeat]^7 fallback statuses restored to queue (HTTP error)")
         end
     end
 end
 
 -- ========================================
--- MODUL COLLECTOR FUNKTIONEN
+-- MODULE COLLECTORS
 -- ========================================
 
--- Dispatch-Daten sammeln (Fahrzeuge + Einsatzdetails + Patienten + Lagemeldungen)
 local function CollectDispatchData(tick)
     local mannedVehicles = GetMannedVehiclesCached(tick)
     if not mannedVehicles or #mannedVehicles == 0 then
         return nil
     end
 
-    -- Sammle Einsatznummern
     local dispatchNumbers = {}
     local dispatchNumberSet = {}
     for _, vehicle in ipairs(mannedVehicles) do
@@ -443,7 +366,6 @@ local function CollectDispatchData(tick)
         end
     end
 
-    -- Hole Dispatch-Details aus DB
     local dispatchDetails = GetDispatchListDetails(dispatchNumbers)
     local dispatchMap = {}
     for _, detail in ipairs(dispatchDetails) do
@@ -460,7 +382,6 @@ local function CollectDispatchData(tick)
                 location_y = dispatchJson.location_y or 0,
                 bluelight = dispatchJson.bluelight or "no"
             }
-            -- Patientendaten
             if dispatchJson.patienten and dispatchJson.patienten ~= "" then
                 local patientenDecoded = json.decode(dispatchJson.patienten)
                 if patientenDecoded then
@@ -479,13 +400,11 @@ local function CollectDispatchData(tick)
         end
     end
 
-    -- Lagemeldungen (wenn aktiviert)
     local lagemeldungMap = {}
     if Config.EMDSync.LagemeldungSync and Config.EMDSync.LagemeldungSync.Enabled then
         lagemeldungMap = GetAllLagemeldungen(dispatchNumbers)
     end
 
-    -- Fahrzeuge mit Dispatch-Daten anreichern
     for _, vehicle in ipairs(mannedVehicles) do
         if vehicle.dispatch then
             local dispatchNumber = tostring(vehicle.dispatch)
@@ -494,17 +413,6 @@ local function CollectDispatchData(tick)
                 if lagemeldungMap[dispatchNumber] then
                     vehicle.dispatch_data.lagemeldungen = lagemeldungMap[dispatchNumber]
                 end
-                if Config.Debug then
-                    local patientInfo = ""
-                    if dispatchMap[dispatchNumber].patienten then
-                        patientInfo = " (inkl. " .. #dispatchMap[dispatchNumber].patienten .. " Patient(en))"
-                    end
-                    local lageInfo = ""
-                    if lagemeldungMap[dispatchNumber] then
-                        lageInfo = " (inkl. " .. #lagemeldungMap[dispatchNumber] .. " Lagemeldung(en))"
-                    end
-                    print("^2[Heartbeat]^7 Dispatch-Daten für Einsatz " .. vehicle.dispatch .. " hinzugefügt" .. patientInfo .. lageInfo)
-                end
             end
         end
     end
@@ -512,7 +420,6 @@ local function CollectDispatchData(tick)
     return { vehicles = mannedVehicles }
 end
 
--- Status-Updates sammeln (FiveM -> PHP)
 local function CollectStatusUpdates()
     local statuses = GetNewStatusMessages()
     if not statuses or #statuses == 0 then
@@ -538,7 +445,6 @@ local function CollectStatusUpdates()
     }
 end
 
--- Lagemeldungen sammeln (standalone)
 local function CollectLagemeldungen(tick)
     local mannedVehicles = GetMannedVehiclesCached(tick)
     if not mannedVehicles or #mannedVehicles == 0 then
@@ -575,7 +481,7 @@ local function CollectLagemeldungen(tick)
 end
 
 -- ========================================
--- VEHICLE REGISTRY (on-demand, triggered by PHP response)
+-- VEHICLE REGISTRY (sent on request by the PHP side)
 -- ========================================
 
 local function SendVehicleRegistry()
@@ -583,13 +489,13 @@ local function SendVehicleRegistry()
 
     if not result or #result == 0 then
         if Config.Debug then
-            print("^3[VehicleRegistry]^7 Keine Fahrzeuge in emd_vehicles gefunden")
+            print("^3[VehicleRegistry]^7 no vehicles in emd_vehicles")
         end
         return
     end
 
     if Config.Debug then
-        print("^2[VehicleRegistry]^7 " .. #result .. " Fahrzeuge geladen, sende an PHP...")
+        print("^2[VehicleRegistry]^7 sending " .. #result .. " vehicles")
     end
 
     local payload = {
@@ -601,9 +507,9 @@ local function SendVehicleRegistry()
     PerformHttpRequest(PHPEndpoint, function(statusCode, response, headers)
         if Config.Debug then
             if statusCode == 200 then
-                print("^2[VehicleRegistry]^7 Fahrzeugregister erfolgreich gesendet")
+                print("^2[VehicleRegistry]^7 registry sent")
             else
-                print("^1[VehicleRegistry]^7 Fehler beim Senden: " .. tostring(statusCode) .. " " .. tostring(response))
+                print("^1[VehicleRegistry]^7 send failed: " .. tostring(statusCode) .. " " .. tostring(response))
             end
         end
     end, 'POST', json.encode(payload), {
@@ -632,7 +538,6 @@ local function BuildHeartbeatPayload(tick)
 
     local hasData = false
 
-    -- Dispatch-Daten (Fahrzeuge + Einsatzdetails)
     if Config.EMDSync.DispatchSync and Config.EMDSync.DispatchSync.Enabled
        and tick % (Config.EMDSync.DispatchSync.TickMultiplier or 6) == 0 then
         local dispatchData = CollectDispatchData(tick)
@@ -642,7 +547,6 @@ local function BuildHeartbeatPayload(tick)
         end
     end
 
-    -- Status-Updates (FiveM -> PHP)
     if Config.EMDSync.StatusSync and Config.EMDSync.StatusSync.Enabled
        and tick % (Config.EMDSync.StatusSync.TickMultiplier or 1) == 0 then
         local statusData = CollectStatusUpdates()
@@ -650,12 +554,11 @@ local function BuildHeartbeatPayload(tick)
             payload.status_updates = statusData
             hasData = true
         end
-        -- Status-Poll anfordern (PHP -> FiveM)
+        -- Even with nothing to send we want the poll response back
         table.insert(payload.request_modules, "status_poll")
-        hasData = true -- Auch ohne ausgehende Daten wollen wir die Poll-Antwort
+        hasData = true
     end
 
-    -- Lagemeldungen (standalone)
     if Config.EMDSync.LagemeldungSync and Config.EMDSync.LagemeldungSync.Enabled
        and tick % (Config.EMDSync.LagemeldungSync.TickMultiplier or 6) == 0 then
         local lageData = CollectLagemeldungen(tick)
@@ -667,7 +570,6 @@ local function BuildHeartbeatPayload(tick)
         hasData = true
     end
 
-    -- Fallback-Status-Queue (immer prüfen)
     local fallbacks = DrainFallbackStatusQueue()
     if fallbacks and #fallbacks > 0 then
         payload.fallback_statuses = { entries = fallbacks }
@@ -675,7 +577,7 @@ local function BuildHeartbeatPayload(tick)
     end
 
     if not hasData then
-        -- Nichts zu senden, Fallback-Queue wiederherstellen falls drained
+        -- nothing to send, put drained fallbacks back
         RestoreFallbackStatuses()
         return nil
     end
@@ -686,70 +588,54 @@ end
 local function HandleHeartbeatResponse(statusCode, response)
     if statusCode ~= 200 then
         if Config.Debug then
-            print("^1[Heartbeat]^7 Fehler. Statuscode: " .. tostring(statusCode))
+            print("^1[Heartbeat]^7 request failed, status code: " .. tostring(statusCode))
             if statusCode == 401 then
-                print("^1[Heartbeat]^7 API-Key ungültig! Bitte Config.APIKey in config.lua korrekt setzen.")
+                print("^1[Heartbeat]^7 invalid API key, check Config.APIKey in config.lua")
             end
             if response then
-                print("^1[Heartbeat]^7 Antwort: " .. tostring(response))
+                print("^1[Heartbeat]^7 response: " .. tostring(response))
             end
         end
-        -- Fallback-Queue wiederherstellen bei Fehler
         RestoreFallbackStatuses()
         isSyncing = false
         return
-    end
-
-    if Config.Debug then
-        print("^2[Heartbeat]^7 Antwort empfangen: " .. tostring(response))
     end
 
     local responseData = json.decode(response)
     if not responseData then
         if Config.Debug then
-            print("^1[Heartbeat]^7 Ungültige JSON-Antwort")
+            print("^1[Heartbeat]^7 invalid JSON response")
         end
         RestoreFallbackStatuses()
         isSyncing = false
         return
     end
 
-    -- Status-Poll verarbeiten (PHP -> FiveM)
     if responseData.status_poll and responseData.status_poll.status_changes then
         ProcessStatusChanges(responseData.status_poll.status_changes)
     end
 
-    -- Lagemeldungen aus Response verarbeiten (PHP -> emergencydispatch)
     if responseData.situation_reports then
         ProcessSituationReports(responseData)
     end
 
-    -- Patientendaten aus Response verarbeiten (PHP -> emergencydispatch)
     if responseData.patient_updates then
         ProcessPatientData(responseData)
     end
 
-    -- Vehicle Registry senden wenn angefordert
     if responseData.request_vehicle_registry then
-        if Config.Debug then
-            print("^2[Heartbeat]^7 PHP fordert Fahrzeugregister an - sende...")
-        end
         SendVehicleRegistry()
     end
 
-    -- Status-ACK verarbeiten (lastStatusId aktualisieren)
+    -- ack: move lastStatusId past everything the backend confirmed
     if responseData.status_ack and responseData.status_ack.successful_ids then
         for _, id in ipairs(responseData.status_ack.successful_ids) do
             if id > lastStatusId then
                 lastStatusId = id
             end
         end
-        if Config.Debug then
-            print("^2[Heartbeat]^7 lastStatusId aktualisiert: " .. lastStatusId)
-        end
     end
 
-    -- Fallback-Status bestätigen (erfolgreich gesendet)
     ConfirmFallbackStatuses()
 
     isSyncing = false
@@ -760,18 +646,8 @@ function PerformHeartbeat(tick)
         return
     end
 
-    if not PHPEndpoint then
-        if Config.Debug then
-            print("^1[Heartbeat]^7 PHPEndpoint nicht verfügbar!")
-        end
-        return
-    end
-
     local payload = BuildHeartbeatPayload(tick)
     if not payload then
-        if Config.Debug then
-            print("^3[Heartbeat]^7 Tick " .. tick .. ": Nichts zu senden, überspringe")
-        end
         return
     end
 
@@ -784,7 +660,7 @@ function PerformHeartbeat(tick)
         if payload.lagemeldungen then table.insert(modules, "Lagemeldungen") end
         if payload.fallback_statuses then table.insert(modules, "Fallback(" .. #payload.fallback_statuses.entries .. ")") end
         if #payload.request_modules > 0 then table.insert(modules, "Poll:" .. table.concat(payload.request_modules, ",")) end
-        print("^2[Heartbeat]^7 Tick " .. tick .. " -> " .. table.concat(modules, " + "))
+        print("^2[Heartbeat]^7 tick " .. tick .. " -> " .. table.concat(modules, " + "))
     end
 
     PerformHttpRequest(PHPEndpoint, function(statusCode, response, headers)
@@ -796,19 +672,18 @@ function PerformHeartbeat(tick)
 end
 
 -- ========================================
--- HEARTBEAT TIMER (ersetzt alle bisherigen Timer)
+-- HEARTBEAT TIMER
 -- ========================================
 CreateThread(function()
-    Wait(5000) -- Warte nach Server-Start
+    Wait(5000) -- give the server a moment after startup
 
     if not Config or not Config.EMDSync or not Config.EMDSync.Enabled then
         if Config.Debug then
-            print("^3[Heartbeat]^7 EMD-Sync ist in der Konfiguration deaktiviert")
+            print("^3[Heartbeat]^7 EMD sync disabled in config")
         end
         return
     end
 
-    -- Initialisierung
     if Config.EMDSync.StatusSync and Config.EMDSync.StatusSync.Enabled then
         LoadLastStatusId()
     end
@@ -816,47 +691,30 @@ CreateThread(function()
     local heartbeatInterval = Config.EMDSync.HeartbeatInterval or 5000
 
     if Config.Debug then
-        print("^2[Heartbeat]^7 ==============================")
-        print("^2[Heartbeat]^7 Konsolidierter Heartbeat gestartet")
-        print("^2[Heartbeat]^7 Basis-Intervall: " .. (heartbeatInterval / 1000) .. "s")
-        print("^2[Heartbeat]^7 Endpunkt: " .. PHPEndpoint)
-        if Config.EMDSync.DispatchSync and Config.EMDSync.DispatchSync.Enabled then
-            print("^2[Heartbeat]^7   DispatchSync: aktiv (alle " .. ((Config.EMDSync.DispatchSync.TickMultiplier or 6) * heartbeatInterval / 1000) .. "s)")
-        end
-        if Config.EMDSync.StatusSync and Config.EMDSync.StatusSync.Enabled then
-            print("^2[Heartbeat]^7   StatusSync: aktiv (alle " .. ((Config.EMDSync.StatusSync.TickMultiplier or 1) * heartbeatInterval / 1000) .. "s)")
-            print("^2[Heartbeat]^7   Überwachte Status: " .. table.concat(Config.EMDSync.StatusSync.SyncStatuses, ", "))
-        end
-        if Config.EMDSync.LagemeldungSync and Config.EMDSync.LagemeldungSync.Enabled then
-            print("^2[Heartbeat]^7   LagemeldungSync: aktiv (alle " .. ((Config.EMDSync.LagemeldungSync.TickMultiplier or 6) * heartbeatInterval / 1000) .. "s)")
-        end
-        print("^2[Heartbeat]^7 ==============================")
+        print("^2[Heartbeat]^7 heartbeat started, base interval " .. (heartbeatInterval / 1000) .. "s, endpoint " .. PHPEndpoint)
     end
 
-    -- Erster Heartbeat sofort (tick 0 = alle Module feuern)
+    -- first heartbeat right away (tick 0 fires every module)
     currentTick = 0
     PerformHeartbeat(currentTick)
 
-    -- Heartbeat-Loop
     while true do
         Wait(heartbeatInterval)
         currentTick = currentTick + 1
 
         if not isSyncing then
             PerformHeartbeat(currentTick)
-        else
-            if Config.Debug then
-                print("^3[Heartbeat]^7 Vorheriger Heartbeat noch aktiv, überspringe Tick " .. currentTick)
-            end
+        elseif Config.Debug then
+            print("^3[Heartbeat]^7 previous heartbeat still running, skipping tick " .. currentTick)
         end
     end
 end)
 
 -- ========================================
--- EVENT HANDLER
+-- EVENT HANDLERS
 -- ========================================
 
--- Fallback: Statusmeldungen ohne Einsatzzuordnung in Queue
+-- Statuses for vehicles without a dispatch go into the fallback queue
 AddEventHandler('emergencydispatch:status:emf', function(fzg, status, time)
     if not Config.EMDSync or not Config.EMDSync.StatusSync or not Config.EMDSync.StatusSync.Enabled then
         return
@@ -877,44 +735,26 @@ AddEventHandler('emergencydispatch:status:emf', function(fzg, status, time)
     end
 
     if not hasDispatch then
-        if Config.Debug then
-            print("^2[Heartbeat]^7 Fahrzeug '" .. tostring(fzg) .. "' hat keinen Einsatz - Queue Fallback-Status")
-        end
         QueueFallbackStatus(fzg, status, time)
-    else
-        if Config.Debug then
-            print("^3[Heartbeat]^7 Fahrzeug '" .. tostring(fzg) .. "' hat Einsatz - normaler StatusSync greift")
-        end
     end
 end)
 
--- Manuelle Synchronisation
+-- Manual sync triggered from the client, gated behind an ACE permission
 RegisterServerEvent('emd:syncNow')
 AddEventHandler('emd:syncNow', function()
     local source = source
     if IsPlayerAceAllowed(source, 'command.emdsync') then
-        if Config.Debug then
-            print("^2[Heartbeat]^7 Manuelle Synchronisierung durch Spieler " .. source)
-        end
         PerformHeartbeat(0)
     end
 end)
 
--- Fahrzeug-Alarmierung
-RegisterServerEvent('emd:vehicleAlerted')
+-- Server-internal triggers for an immediate heartbeat (other resources
+-- fire these via TriggerEvent, so no RegisterServerEvent here on purpose)
 AddEventHandler('emd:vehicleAlerted', function()
-    if Config.Debug then
-        print("^2[Heartbeat]^7 Fahrzeugalarmierung - sofortiger Heartbeat")
-    end
     PerformHeartbeat(0)
 end)
 
--- Status-Änderung
-RegisterServerEvent('emd:statusChanged')
 AddEventHandler('emd:statusChanged', function(vehicleId, newStatus)
-    if Config.Debug then
-        print("^2[Heartbeat]^7 Status geändert: " .. tostring(vehicleId) .. " -> " .. tostring(newStatus))
-    end
     PerformHeartbeat(0)
 end)
 
@@ -924,21 +764,17 @@ end)
 
 RegisterCommand('emdsync', function(source, args)
     if source == 0 or IsPlayerAceAllowed(source, 'command.emdsync') then
-        if Config.Debug then
-            print("^2[Heartbeat]^7 Manueller Heartbeat ausgelöst")
-        end
         PerformHeartbeat(0)
     end
 end, true)
 
--- Neuer Haupt-Export
 exports('syncHeartbeat', function()
     PerformHeartbeat(0)
 end)
 
--- Backward-kompatible Wrapper
+-- kept for scripts that still call the old per-module exports
 exports('syncDispatchData', function() PerformHeartbeat(0) end)
 exports('syncStatusMessages', function() PerformHeartbeat(0) end)
 exports('syncLagemeldungen', function() PerformHeartbeat(0) end)
 
-print("^2[Heartbeat]^7 EMD-Sync Heartbeat v2 erfolgreich geladen!")
+print("^2[Heartbeat]^7 EMD sync heartbeat loaded")

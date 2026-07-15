@@ -2,13 +2,14 @@ fx_version 'cerulean'
 lua54 'on'
 game 'gta5'
 
-name 'intraTab'
-description 'intraTab + NOTFpad + FireTab'
+name 'ignisTab'
+description 'ignis ingame tablets for FiveM (eNOTF + FireTab)'
 author 'EmergencyForge.de'
-version '2.3.0'
+version '3.0.0'
 
 shared_scripts {
-    'config.lua'
+    'config.lua',
+    'shared/url.lua'
 }
 
 client_scripts {
@@ -22,15 +23,14 @@ server_scripts {
     'server/billing-custom.lua'
 }
 
--- Master UI Page (contains eNOTF and FireTab)
+-- Master UI page hosts both tablets (eNOTF and FireTab)
 ui_page 'html/master.html'
 
 files {
     'html/master.html',
-    'html/index.html',
     'html/css/style.css',
-    'html/js/script.js',
     'html/css/firetab.css',
+    'html/js/script.js',
     'html/js/firetab.js',
     'html/js/master.js'
 }
@@ -40,6 +40,7 @@ data_file 'DLC_ITYP_REQUEST' 'stream/firetab.ytyp'
 
 escrow_ignore {
     'config.lua',
+    'shared/*.lua',
     'client/*.lua',
     'server/billing-custom.lua',
     'server/enotf_billing.lua',
