@@ -42,6 +42,7 @@ function ensureHttpsFireTab(url) {
 
 window.addEventListener("message", function (event) {
   const data = event.data;
+  if (fromTabletFrame(event)) return; // see master.js
 
   switch (data.type) {
     case "openTablet":

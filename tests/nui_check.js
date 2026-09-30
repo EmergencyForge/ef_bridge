@@ -113,6 +113,31 @@ const loginUrl = "https://ignis.test/auth/tablet?token=SECRET123";
   check("token never logged", !JSON.stringify(logged).includes("SECRET123"));
 }
 
+// game messages posted from inside a tablet frame
+{
+  const { ctx, frames, send } = load();
+  const evil = "javascript:parent.document.title='x'";
+  const inFrame = frames.tabletScreen.contentWindow;
+  const nested = { parent: frames.firetabScreen.contentWindow };
+
+  send({ type: "tabletLogin", tabletType: "FireTab", url: evil }, inFrame);
+  send({ type: "tabletLogin", tabletType: "FireTab", url: loginUrl }, nested);
+  check("tabletLogin from a frame is ignored", frames.firetabScreen.history.length === 0);
+
+  send({ type: "openTablet", tabletType: "eNOTF", url: "https://evil.test/", characterData: {} }, inFrame);
+  send({ type: "openTablet", tabletType: "FireTab", url: "https://evil.test/", characterData: {} }, nested);
+  check("openTablet from a frame is ignored",
+    frames.tabletScreen.history.length === 0 && frames.firetabScreen.history.length === 0 &&
+    !vm.runInContext("isTabletOpen", ctx));
+
+  send({ type: "tabletLogin", tabletType: "FireTab", url: evil });
+  send({ type: "tabletLogin", tabletType: "FireTab", url: "http://ignis.test/auth/tablet?token=x" });
+  check("only https login links", frames.firetabScreen.history.length === 0);
+
+  send({ type: "openTablet", tabletType: "eNOTF", url: "https://ignis.test/enotf/overview.php", characterData: {} });
+  check("openTablet from the game still works", vm.runInContext("isTabletOpen", ctx));
+}
+
 // session relay from the ignis page inside a frame
 for (const type of ["ignis_session", "intraRP_session"]) {
   const { frames, fetched, send } = load();

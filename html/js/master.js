@@ -94,7 +94,7 @@ function goBack() {
 window.addEventListener("message", function (event) {
   const data = event.data;
 
-  if (!data) return;
+  if (!data || fromTabletFrame(event)) return;
 
   // the tablet login link carries a login token, keep it out of the log
   if (DEBUG && data.type !== "tabletLogin")
@@ -149,6 +149,22 @@ window.addEventListener("message", function (event) {
   }
 });
 
+// Game messages (openTablet, tabletLogin, ...) come from the game client.
+// The pages in the tablet frames can post to this window as well, ignis
+// or wherever a link took the frame, so drop anything sent from inside a
+// frame, nested frames included. Don't compare against window: depending
+// on the build, SendNUIMessage arrives from the NUI root window.
+function fromTabletFrame(event) {
+  const frames = ["tabletScreen", "firetabScreen"].map((id) => {
+    const el = document.getElementById(id);
+    return el && el.contentWindow;
+  });
+  for (let w = event.source; w; w = w.parent === w ? null : w.parent) {
+    if (frames.includes(w)) return true;
+  }
+  return false;
+}
+
 // ==========================================
 // TABLET LOGIN
 // ==========================================
@@ -162,7 +178,7 @@ function tabletLogin(tabletType, loginUrl) {
       ? "firetabScreen"
       : "tabletScreen";
   const frame = document.getElementById(frameId);
-  if (!frame || !loginUrl) return;
+  if (!frame || !/^https:\/\//i.test(loginUrl || "")) return;
 
   const target = frame.src;
   frame.addEventListener(
