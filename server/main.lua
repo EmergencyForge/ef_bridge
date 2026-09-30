@@ -67,6 +67,17 @@ end)
 
 local TabletLoginEndpoint = BuildURL("api/tablet/login-token")
 local TabletLoginUnavailable = "Tablet-Login ist gerade nicht verfügbar. Bitte melde dich normal an."
+local TabletLoginTooMany = "Zu viele Anmeldeversuche. Warte kurz und öffne das Tablet dann erneut."
+
+-- The client asks once per session, but a modified client can fire the
+-- event in a loop and every request costs ignis a few queries. One
+-- request per player every 15 seconds.
+local TabletLoginCooldown = 15
+local lastTabletLogin = {}
+
+AddEventHandler('playerDropped', function()
+    lastTabletLogin[source] = nil
+end)
 
 local function TabletLoginFailed(src, tabletType, message)
     TriggerClientEvent('ignisTab:tabletLoginFailed', src, tabletType, message)
@@ -79,6 +90,13 @@ AddEventHandler('ignisTab:requestTabletLogin', function(tabletType)
     if not (Config.TabletLogin and Config.TabletLogin.Enabled) then
         return
     end
+
+    local now = os.time()
+    if now - (lastTabletLogin[src] or 0) < TabletLoginCooldown then
+        TabletLoginFailed(src, tabletType, TabletLoginTooMany)
+        return
+    end
+    lastTabletLogin[src] = now
 
     -- With a public key anyone could fetch login links for any Discord ID
     if Config.APIKey then
@@ -111,7 +129,7 @@ AddEventHandler('ignisTab:requestTabletLogin', function(tabletType)
         elseif statusCode == 404 then
             TabletLoginFailed(src, tabletType, "Tablet-Login ist in ignis nicht aktiviert. Bitte melde dich normal an.")
         elseif statusCode == 429 then
-            TabletLoginFailed(src, tabletType, "Zu viele Anmeldeversuche. Warte kurz und öffne das Tablet dann erneut.")
+            TabletLoginFailed(src, tabletType, TabletLoginTooMany)
         else
             if statusCode == 403 then
                 print("^1[ignisTab]^7 tablet login: API key rejected, check ServerConfig.APIKey in config_server.lua")

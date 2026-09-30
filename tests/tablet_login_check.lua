@@ -10,6 +10,8 @@ local printed, requests, notifications = {}, {}, {}
 local identifiers = {}
 local nextResponse = { 200, "" }
 local decoded = {}
+local now = 1000000
+os.time = function() return now end
 
 -- natives the scripts touch while loading or opening a tablet
 for _, name in ipairs({
@@ -73,7 +75,9 @@ local function check(label, cond)
     if not cond then failed = failed + 1 end
 end
 
-local function reset(status, body, value)
+-- wait: seconds since the last request, past the cooldown by default
+local function reset(status, body, value, wait)
+    now = now + (wait or 60)
     clientEvents, serverEvents, nuiMessages = {}, {}, {}
     printed, requests, notifications = {}, {}, {}
     nextResponse = { status, body }
@@ -81,8 +85,8 @@ local function reset(status, body, value)
 end
 
 -- one tablet login request as the server sees it
-local function run(src, status, body, value)
-    reset(status, body, value)
+local function run(src, status, body, value, wait)
+    reset(status, body, value, wait)
     source = src
     handlers['ignisTab:requestTabletLogin']('eNOTF')
     return clientEvents[1]
@@ -148,6 +152,22 @@ Config.APIKey = "secret-key"
 ev = run(1, 200, "ok", okBody)
 check("key in config.lua: no request, failure", #requests == 0 and ev.name == 'ignisTab:tabletLoginFailed')
 Config.APIKey = nil
+
+-- a modified client firing the event in a loop
+identifiers[4] = "discord:223456789012345678"
+run(4, 200, "ok", okBody)
+ev = run(4, 200, "ok", okBody, 5)
+check("cooldown: no second request to ignis within 15 s", #requests == 0)
+check("cooldown: player gets the rate limit notice", ev.name == 'ignisTab:tabletLoginFailed' and ev.args[2]:find("Zu viele"))
+run(4, 200, "ok", okBody, 10)
+check("cooldown counts from the last request that went through", #requests == 1)
+run(1, 200, "ok", okBody, 0)
+check("cooldown is per player", #requests == 1)
+run(4, 200, "ok", okBody, 1)
+source = 4
+handlers['playerDropped']()
+run(4, 200, "ok", okBody, 1)
+check("cooldown cleared when the player leaves", #requests == 1)
 
 -- ===== client =====
 
