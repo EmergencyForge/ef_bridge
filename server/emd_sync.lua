@@ -499,7 +499,7 @@ local function SendVehicleRegistry()
     end
 
     local payload = {
-        intraRP_API_Key = Config.APIKey,
+        intraRP_API_Key = ServerConfig.APIKey,
         timestamp = os.time(),
         vehicle_registry = result
     }
@@ -524,7 +524,7 @@ end
 
 local function BuildHeartbeatPayload(tick)
     local payload = {
-        intraRP_API_Key = Config.APIKey,
+        intraRP_API_Key = ServerConfig.APIKey,
         timestamp = os.time(),
         protocol_version = 2,
         serverName = GetConvar('sv_projectName', 'Unknown Server'),
@@ -590,7 +590,7 @@ local function HandleHeartbeatResponse(statusCode, response)
         if Config.Debug then
             print("^1[Heartbeat]^7 request failed, status code: " .. tostring(statusCode))
             if statusCode == 401 then
-                print("^1[Heartbeat]^7 invalid API key, check Config.APIKey in config.lua")
+                print("^1[Heartbeat]^7 invalid API key, check ServerConfig.APIKey in config_server.lua")
             end
             if response then
                 print("^1[Heartbeat]^7 response: " .. tostring(response))

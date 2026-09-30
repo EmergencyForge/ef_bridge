@@ -17,6 +17,7 @@ client_scripts {
 }
 
 server_scripts {
+    'config_server.lua',
     'server/main.lua',
     'server/emd_sync.lua',
     'server/enotf_billing.lua',
@@ -40,6 +41,7 @@ data_file 'DLC_ITYP_REQUEST' 'stream/firetab.ytyp'
 
 escrow_ignore {
     'config.lua',
+    'config_server.lua',
     'shared/*.lua',
     'client/*.lua',
     'server/billing-custom.lua',

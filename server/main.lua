@@ -1,3 +1,9 @@
+-- Older versions kept the API key in config.lua, which every player
+-- downloads. A key still sitting there is public.
+if Config.APIKey then
+    print("^1[ignisTab]^7 Config.APIKey in config.lua is readable by every player. Move it to ServerConfig.APIKey in config_server.lua, delete it from config.lua and create a new key in ignis.")
+end
+
 -- Character identify: reports which ingame character sits behind a PHP
 -- session so ignis can tie the web session to the character.
 
@@ -26,7 +32,7 @@ AddEventHandler('ignisTab:identifyCharacter', function(sessionId, charData)
 
     -- intraRP_API_Key is part of the ignis API contract, don't rename it
     local payload = {
-        intraRP_API_Key = Config.APIKey,
+        intraRP_API_Key = ServerConfig.APIKey,
         session_id = sessionId,
         char_name = charName,
         char_job = charJob

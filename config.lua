@@ -11,8 +11,8 @@ Config.Framework = 'auto' -- 'auto', 'qbcore' or 'esx'
 --   https://your-domain.tld/ignis/
 Config.BaseURL = 'https://deine-url.de/' -- keep the trailing slash
 
--- API key used by all modules (must match the key set in ignis)
-Config.APIKey = 'CHANGE_ME'
+-- The API key lives in config_server.lua. Every player downloads this
+-- file, so never put it here.
 
 Config.Debug = false
 

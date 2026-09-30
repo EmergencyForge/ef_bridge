@@ -136,8 +136,8 @@ function GetReleasedENOTFProtocols()
         return {}
     end
 
-    if not Config.APIKey or Config.APIKey == "" or Config.APIKey == "CHANGE_ME" then
-        print("^1[eNOTF-Billing]^7 API key is not set, check Config.APIKey in config.lua")
+    if not ServerConfig.APIKey or ServerConfig.APIKey == "" or ServerConfig.APIKey == "CHANGE_ME" then
+        print("^1[eNOTF-Billing]^7 API key is not set, check ServerConfig.APIKey in config_server.lua")
         return {}
     end
 
@@ -175,7 +175,7 @@ function GetReleasedENOTFProtocols()
             p:resolve({})
         end
     end, 'POST', json.encode({
-        intraRP_API_Key = Config.APIKey,
+        intraRP_API_Key = ServerConfig.APIKey,
         timestamp = os.time()
     }), {
         ['Content-Type'] = 'application/json',
