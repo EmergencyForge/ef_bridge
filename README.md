@@ -42,3 +42,12 @@ Voraussetzungen:
 - Derselbe Key steht in der `config_server.lua` bei `ServerConfig.APIKey`.
 - Der FiveM-Server setzt Discord als Identifier voraus. Nur dann liefert FiveM eine geprüfte Discord-ID.
 - In der `config.lua` steht `Config.TabletLogin.Enabled = true`.
+
+## Tests
+
+Die Prüfskripte für den Tablet-Login laufen ohne FiveM, aus dem Repo-Root:
+
+```
+lua tests/tablet_login_check.lua   # Lua 5.4, Server und Client mit gestubbten Natives
+node tests/nui_check.js            # NUI (master.js und die Tablet-Skripte)
+```

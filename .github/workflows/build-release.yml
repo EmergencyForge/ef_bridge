@@ -58,6 +58,7 @@ jobs:
             --exclude '.gitignore' \
             --exclude '.gitattributes' \
             --exclude 'build' \
+            --exclude 'tests' \
             --exclude '*.zip' \
             --exclude '.vscode' \
             --exclude '.idea' \
