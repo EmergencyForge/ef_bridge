@@ -15,12 +15,14 @@ os.time = function() return now end
 
 -- natives the scripts touch while loading or opening a tablet
 for _, name in ipairs({
-    "CreateThread", "RegisterNUICallback", "RegisterCommand", "RegisterKeyMapping",
+    "CreateThread", "RegisterCommand", "RegisterKeyMapping",
     "SetNuiFocus", "SetNuiFocusKeepInput", "SetNotificationTextEntry", "DrawNotification",
     "PlayerPedId", "StopAnimTask", "IsEntityPlayingAnim", "ClearPedSecondaryTask", "ClearPedTasks",
 }) do
     _G[name] = function() end
 end
+local nuiCallbacks = {}
+function RegisterNUICallback(name, fn) nuiCallbacks[name] = fn end
 function RegisterServerEvent() end
 function RegisterNetEvent() end
 function AddEventHandler(name, fn) handlers[name] = fn end
@@ -186,6 +188,16 @@ reset(403, "denied", { success = false, message = "Zugriff verweigert" })
 source = 1
 handlers['ignisTab:identifyCharacter']("sess-0123456789abcdef", charData)
 check("identify: rejected key (403) points to config_server.lua", printedContains("config_server.lua"))
+
+-- a session ID in the log is enough to take over the ignis session
+local sessionId = "0123456789abcdefghijklmnopqrstuv"
+reset(200, "ok", { success = true })
+Config.Debug = true
+nuiCallbacks.sessionIdentify({ session_id = sessionId }, function() end)
+Config.Debug = false
+check("identify reaches ignis", #requests == 1 and requests[1].body:find(sessionId, 1, true))
+check("session ID never printed in full (debug on)", #printed > 0 and not printedContains(sessionId)
+    and printedContains("01234567..."))
 
 -- ===== client =====
 

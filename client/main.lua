@@ -324,7 +324,8 @@ end)
 RegisterNUICallback('sessionIdentify', function(data, cb)
     if data and data.session_id then
         if Config.Debug then
-            print("^2[ignisTab]^7 Received PHP session_id: " .. data.session_id)
+            -- shortened: the full ID would let anyone reading the log take over the session
+            print("^2[ignisTab]^7 Received PHP session_id: " .. tostring(data.session_id):sub(1, 8) .. "...")
         end
 
         local charData = GetPlayerCharacterData()

@@ -46,7 +46,8 @@ AddEventHandler('ignisTab:identifyCharacter', function(sessionId, charData)
 
     if Config.Debug then
         print("^2[ignisTab]^7 identifyCharacter: sending to " .. IdentifyEndpoint)
-        print("^2[ignisTab]^7 Payload: session_id=" .. sessionId .. ", char_name=" .. charName .. ", char_job=" .. charJob)
+        -- the full session ID would let anyone reading the log take over the session
+        print("^2[ignisTab]^7 Payload: session_id=" .. tostring(sessionId):sub(1, 8) .. "..., char_name=" .. charName .. ", char_job=" .. charJob)
     end
 
     PerformHttpRequest(IdentifyEndpoint, function(statusCode, response, headers)
