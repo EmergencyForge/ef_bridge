@@ -30,6 +30,9 @@ end)
 local isTabletOpen = false
 local currentTabletType = nil -- 'eNOTF' or 'FireTab'
 local tabletProp = nil
+-- Tablets that already asked for a login link. The NUI keeps the page
+-- loaded between openings, so one login per tablet and session is enough.
+local tabletLoginRequested = {}
 local tabletDict = Config.Animation.dict
 local tabletAnim = Config.Animation.anim
 
@@ -271,6 +274,11 @@ function OpenTablet(tabletType)
     if Config.Debug then
         print("Tablet opened with URL:", url)
     end
+
+    if Config.TabletLogin and Config.TabletLogin.Enabled and not tabletLoginRequested[tabletType] then
+        tabletLoginRequested[tabletType] = true
+        TriggerServerEvent('ignisTab:requestTabletLogin', tabletType)
+    end
 end
 
 function CloseTablet()
@@ -332,6 +340,26 @@ end)
 RegisterNUICallback('closeTablet', function(data, cb)
     CloseTablet()
     cb('ok')
+end)
+
+-- Tablet login: the server fetched a one-time login link for this player,
+-- the NUI opens it in the tablet frame. Don't print it, its token signs
+-- the player in.
+RegisterNetEvent('ignisTab:tabletLogin')
+AddEventHandler('ignisTab:tabletLogin', function(tabletType, url)
+    SendNUIMessage({
+        type = "tabletLogin",
+        tabletType = tabletType,
+        url = url
+    })
+end)
+
+-- The frame keeps what it loaded (the normal login page without a
+-- session); ask again on the next opening
+RegisterNetEvent('ignisTab:tabletLoginFailed')
+AddEventHandler('ignisTab:tabletLoginFailed', function(tabletType, message)
+    tabletLoginRequested[tabletType] = nil
+    ShowNotification(message, "error")
 end)
 
 -- ESC handling and animation upkeep. Runs every frame only while the

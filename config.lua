@@ -17,6 +17,21 @@ Config.BaseURL = 'https://deine-url.de/' -- keep the trailing slash
 Config.Debug = false
 
 -- ========================================
+-- TABLET LOGIN
+-- ========================================
+-- The Discord login of ignis doesn't work in the game browser. With this
+-- on, the server fetches a one-time login link from ignis for the
+-- player's Discord ID the first time a tablet loads. Needs:
+--   * ignis: system setting TABLET_LOGIN_ENABLED switched on
+--   * ServerConfig.APIKey set in config_server.lua
+--   * FiveM: Discord set as required identifier, only then does FiveM
+--     hand out a verified Discord ID
+-- Players without a Discord ID or ignis account keep the normal login page.
+Config.TabletLogin = {
+    Enabled = false
+}
+
+-- ========================================
 -- ENOTF TABLET
 -- ========================================
 Config.eNOTF = {

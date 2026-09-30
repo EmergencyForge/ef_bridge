@@ -96,7 +96,9 @@ window.addEventListener("message", function (event) {
 
   if (!data) return;
 
-  if (DEBUG) console.log("[Master] NUI message received:", data);
+  // the tablet login link carries a login token, keep it out of the log
+  if (DEBUG && data.type !== "tabletLogin")
+    console.log("[Master] NUI message received:", data);
 
   if (data.type === "openTablet") {
     const tabletType = data.tabletType; // "eNOTF" or "FireTab"
@@ -141,7 +143,37 @@ window.addEventListener("message", function (event) {
       );
     }
   }
+
+  else if (data.type === "tabletLogin") {
+    tabletLogin(data.tabletType, data.url);
+  }
 });
+
+// ==========================================
+// TABLET LOGIN
+// ==========================================
+
+// Opens the one-time login link from the server in the tablet's frame.
+// ignis lands on its dashboard after the login, so return to the page
+// the tablet had loaded before.
+function tabletLogin(tabletType, loginUrl) {
+  const frameId =
+    (tabletType + "").toLowerCase() === "firetab"
+      ? "firetabScreen"
+      : "tabletScreen";
+  const frame = document.getElementById(frameId);
+  if (!frame || !loginUrl) return;
+
+  const target = frame.src;
+  frame.addEventListener(
+    "load",
+    function () {
+      if (target) frame.src = target;
+    },
+    { once: true },
+  );
+  frame.src = loginUrl;
+}
 
 // ==========================================
 // SESSION IDENTIFICATION
