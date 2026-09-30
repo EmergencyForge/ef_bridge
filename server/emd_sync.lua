@@ -585,13 +585,18 @@ local function BuildHeartbeatPayload(tick)
     return payload
 end
 
+local apiKeyHintShown = false
+
 local function HandleHeartbeatResponse(statusCode, response)
     if statusCode ~= 200 then
+        -- a rejected key stops the whole sync, so say it without Debug too,
+        -- once instead of on every heartbeat
+        if (statusCode == 401 or statusCode == 403) and not apiKeyHintShown then
+            apiKeyHintShown = true
+            print("^1[Heartbeat]^7 API key rejected (" .. statusCode .. "), check ServerConfig.APIKey in config_server.lua")
+        end
         if Config.Debug then
             print("^1[Heartbeat]^7 request failed, status code: " .. tostring(statusCode))
-            if statusCode == 401 then
-                print("^1[Heartbeat]^7 invalid API key, check ServerConfig.APIKey in config_server.lua")
-            end
             if response then
                 print("^1[Heartbeat]^7 response: " .. tostring(response))
             end

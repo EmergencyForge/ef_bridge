@@ -180,6 +180,13 @@ handlers['playerDropped']()
 run(4, 200, "ok", okBody, 1)
 check("cooldown cleared when the player leaves", #requests == 1)
 
+-- character identify
+local charData = { firstName = "Max", lastName = "Muster", job = "admin" }
+reset(403, "denied", { success = false, message = "Zugriff verweigert" })
+source = 1
+handlers['ignisTab:identifyCharacter']("sess-0123456789abcdef", charData)
+check("identify: rejected key (403) points to config_server.lua", printedContains("config_server.lua"))
+
 -- ===== client =====
 
 reset(200, "ok", okBody)

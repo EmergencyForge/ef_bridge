@@ -4,6 +4,12 @@ if Config.APIKey then
     print("^1[ignisTab]^7 Config.APIKey in config.lua is readable by every player. Move it to ServerConfig.APIKey in config_server.lua, delete it from config.lua and create a new key in ignis.")
 end
 
+-- An update brings a fresh config_server.lua; without the key ignis
+-- rejects every request
+if ServerConfig.APIKey == 'CHANGE_ME' then
+    print("^1[ignisTab]^7 ServerConfig.APIKey in config_server.lua is not set, ignis will reject every request.")
+end
+
 -- Character identify: reports which ingame character sits behind a PHP
 -- session so ignis can tie the web session to the character.
 
@@ -48,8 +54,8 @@ AddEventHandler('ignisTab:identifyCharacter', function(sessionId, charData)
             if Config.Debug then
                 print("^2[ignisTab]^7 identifyCharacter: OK (200)")
             end
-        elseif statusCode == 401 then
-            print("^1[ignisTab]^7 identifyCharacter: invalid API key (401)")
+        elseif statusCode == 401 or statusCode == 403 then
+            print("^1[ignisTab]^7 identifyCharacter: API key rejected (" .. statusCode .. "), check ServerConfig.APIKey in config_server.lua")
         else
             print("^1[ignisTab]^7 identifyCharacter: error " .. tostring(statusCode) .. " - " .. tostring(response))
         end
