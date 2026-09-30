@@ -149,11 +149,16 @@ window.addEventListener("message", function (event) {
 
 // The PHP page inside the iframe posts its session_id up to us; forward
 // it to the game client so the server can identify the character.
+// Current ignis sends ignis_session, older installs still send
+// intraRP_session.
 window.addEventListener("message", function (event) {
   const data = event.data;
   if (!data || !data.type) return;
 
-  if (data.type === "intraRP_session" && data.session_id) {
+  if (
+    (data.type === "ignis_session" || data.type === "intraRP_session") &&
+    data.session_id
+  ) {
     if (DEBUG) console.log("[Master] Received PHP session_id via postMessage");
 
     fetch(`https://${GetParentResourceName()}/sessionIdentify`, {
