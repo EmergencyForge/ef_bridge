@@ -34,7 +34,7 @@ Der Discord-Login von ignis funktioniert im Spielbrowser nicht. Der Tablet-Login
 2. ignis sucht das aktive Konto mit dieser Discord-ID. Der Token gilt 60 Sekunden und nur für eine Anmeldung.
 3. Den Login-Link bekommt nur dieser Spieler. Das Tablet öffnet ihn und springt danach auf seine eigentliche Seite zurück.
 
-Der API-Key bleibt dabei auf dem Server. Neue Konten legt der Tablet-Login nicht an. Klappt die Anmeldung nicht (keine Discord-ID, kein passendes Konto, zu viele Versuche), bekommt der Spieler einen Hinweis und sieht die normale Login-Seite. Beim nächsten Öffnen versucht es das Tablet erneut.
+Der API-Key bleibt dabei auf dem Server. Neue Konten legt der Tablet-Login nicht an. Ein Login gilt für beide Tablets, sie teilen sich die ignis-Sitzung. Klappt die Anmeldung nicht, bekommt der Spieler einen Hinweis und sieht die normale Login-Seite. Bei vorübergehenden Fehlern (zu viele Versuche, ignis nicht erreichbar) versucht es das Tablet beim nächsten Öffnen erneut. Bei dauerhaften Fehlern (keine Discord-ID, kein passendes Konto, Tablet-Login in ignis aus) kommt der Hinweis einmal pro Sitzung. Der Server nimmt pro Spieler höchstens eine Anfrage alle 15 Sekunden an.
 
 Voraussetzungen:
 

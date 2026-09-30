@@ -79,8 +79,10 @@ AddEventHandler('playerDropped', function()
     lastTabletLogin[source] = nil
 end)
 
-local function TabletLoginFailed(src, tabletType, message)
-    TriggerClientEvent('ignisTab:tabletLoginFailed', src, tabletType, message)
+-- retry: a passing error (rate limit, ignis unreachable), the client asks
+-- again on the next opening. Otherwise it doesn't ask again this session.
+local function TabletLoginFailed(src, tabletType, message, retry)
+    TriggerClientEvent('ignisTab:tabletLoginFailed', src, tabletType, message, retry == true)
 end
 
 RegisterServerEvent('ignisTab:requestTabletLogin')
@@ -93,7 +95,7 @@ AddEventHandler('ignisTab:requestTabletLogin', function(tabletType)
 
     local now = os.time()
     if now - (lastTabletLogin[src] or 0) < TabletLoginCooldown then
-        TabletLoginFailed(src, tabletType, TabletLoginTooMany)
+        TabletLoginFailed(src, tabletType, TabletLoginTooMany, true)
         return
     end
     lastTabletLogin[src] = now
@@ -129,14 +131,16 @@ AddEventHandler('ignisTab:requestTabletLogin', function(tabletType)
         elseif statusCode == 404 then
             TabletLoginFailed(src, tabletType, "Tablet-Login ist in ignis nicht aktiviert. Bitte melde dich normal an.")
         elseif statusCode == 429 then
-            TabletLoginFailed(src, tabletType, TabletLoginTooMany)
+            TabletLoginFailed(src, tabletType, TabletLoginTooMany, true)
         else
             if statusCode == 403 then
                 print("^1[ignisTab]^7 tablet login: API key rejected, check ServerConfig.APIKey in config_server.lua")
             else
                 print("^1[ignisTab]^7 tablet login: ignis answered " .. tostring(statusCode))
             end
-            TabletLoginFailed(src, tabletType, TabletLoginUnavailable)
+            -- 0: ignis not reachable
+            local code = tonumber(statusCode) or 0
+            TabletLoginFailed(src, tabletType, TabletLoginUnavailable, code == 0 or code >= 500)
         end
     end, 'POST', json.encode({ discord_id = discordId }), {
         ['Content-Type'] = 'application/json',

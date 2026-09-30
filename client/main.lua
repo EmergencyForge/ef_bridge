@@ -30,9 +30,11 @@ end)
 local isTabletOpen = false
 local currentTabletType = nil -- 'eNOTF' or 'FireTab'
 local tabletProp = nil
--- Tablets that already asked for a login link. The NUI keeps the page
--- loaded between openings, so one login per tablet and session is enough.
-local tabletLoginRequested = {}
+-- Asked for a login link this session. The NUI keeps the pages loaded
+-- between openings and both tablets share the ignis cookies, so one login
+-- covers both. A second one would rotate the session and its CSRF token
+-- under forms the other tablet still shows.
+local tabletLoginRequested = false
 local tabletDict = Config.Animation.dict
 local tabletAnim = Config.Animation.anim
 
@@ -275,8 +277,8 @@ function OpenTablet(tabletType)
         print("Tablet opened with URL:", url)
     end
 
-    if Config.TabletLogin and Config.TabletLogin.Enabled and not tabletLoginRequested[tabletType] then
-        tabletLoginRequested[tabletType] = true
+    if Config.TabletLogin and Config.TabletLogin.Enabled and not tabletLoginRequested then
+        tabletLoginRequested = true
         TriggerServerEvent('ignisTab:requestTabletLogin', tabletType)
     end
 end
@@ -355,10 +357,14 @@ AddEventHandler('ignisTab:tabletLogin', function(tabletType, url)
 end)
 
 -- The frame keeps what it loaded (the normal login page without a
--- session); ask again on the next opening
+-- session). Passing errors (rate limit, ignis unreachable) ask again on the
+-- next opening; lasting ones (no Discord ID, no account, login off in
+-- ignis) come up once per session.
 RegisterNetEvent('ignisTab:tabletLoginFailed')
-AddEventHandler('ignisTab:tabletLoginFailed', function(tabletType, message)
-    tabletLoginRequested[tabletType] = nil
+AddEventHandler('ignisTab:tabletLoginFailed', function(tabletType, message, retry)
+    if retry then
+        tabletLoginRequested = false
+    end
     ShowNotification(message, "error")
 end)
 

@@ -64,10 +64,14 @@ Config.TabletLogin.Enabled = true
 Config.eNOTF.UseProp = false
 Config.FireTab.UseProp = false
 dofile(root .. "server/main.lua")
-dofile(root .. "client/main.lua")
-GetPlayerCharacterData = function()
-    return { firstName = "Max", lastName = "Muster", cid = "C1", job = "admin" }
+-- fresh client state, like a player joining
+local function loadClient()
+    dofile(root .. "client/main.lua")
+    GetPlayerCharacterData = function()
+        return { firstName = "Max", lastName = "Muster", cid = "C1", job = "admin" }
+    end
 end
+loadClient()
 
 local failed = 0
 local function check(label, cond)
@@ -122,6 +126,7 @@ identifiers[2] = nil
 ev = run(2, 200, "ok", okBody)
 check("no discord: no request", #requests == 0)
 check("no discord: failure to source", ev.name == 'ignisTab:tabletLoginFailed' and ev.src == 2 and ev.args[2]:find("Discord"))
+check("no discord: not retried", not ev.args[3])
 
 identifiers[3] = "discord:abc"
 ev = run(3, 200, "ok", okBody)
@@ -129,17 +134,22 @@ check("malformed discord id: no request", #requests == 0 and ev.name == 'ignisTa
 
 ev = run(1, 404, "unknown", { success = false, error = "unknown_user" })
 check("404 unknown_user message", ev.name == 'ignisTab:tabletLoginFailed' and ev.args[2]:find("kein aktives ignis%-Konto"))
+check("404 unknown_user is not retried", not ev.args[3])
 ev = run(1, 404, "disabled", { success = false, error = "disabled" })
 check("404 disabled = setting off", ev.name == 'ignisTab:tabletLoginFailed' and ev.args[2]:find("nicht aktiviert"))
 ev = run(1, 404, "<html>not found</html>", nil)
 check("404 without JSON (older ignis) = setting off", ev.args[2]:find("nicht aktiviert"))
 ev = run(1, 429, "limit", { success = false })
 check("429 message", ev.args[2]:find("Zu viele"))
+check("429 may be retried", ev.args[3] == true)
+ev = run(1, 502, "<html>bad gateway</html>", nil)
+check("5xx may be retried", ev.name == 'ignisTab:tabletLoginFailed' and ev.args[3] == true)
 ev = run(1, 403, "denied", { success = false, message = "Zugriff verweigert" })
 check("403 generic player message", ev.args[2]:find("nicht verfügbar"))
 check("403 admin hint", printedContains("API key rejected"))
+check("403 is not retried", not ev.args[3])
 ev = run(1, 0, nil, nil)
-check("network error handled", ev.name == 'ignisTab:tabletLoginFailed')
+check("network error handled", ev.name == 'ignisTab:tabletLoginFailed' and ev.args[3] == true)
 ev = run(1, 200, "notoken", { success = true })
 check("200 without token is a failure", ev.name == 'ignisTab:tabletLoginFailed')
 
@@ -159,6 +169,7 @@ run(4, 200, "ok", okBody)
 ev = run(4, 200, "ok", okBody, 5)
 check("cooldown: no second request to ignis within 15 s", #requests == 0)
 check("cooldown: player gets the rate limit notice", ev.name == 'ignisTab:tabletLoginFailed' and ev.args[2]:find("Zu viele"))
+check("cooldown may be retried", ev.args[3] == true)
 run(4, 200, "ok", okBody, 10)
 check("cooldown counts from the last request that went through", #requests == 1)
 run(1, 200, "ok", okBody, 0)
@@ -184,6 +195,39 @@ reset(200, "ok", okBody)
 OpenTablet('eNOTF')
 check("second opening: no new request", #serverEvents == 0)
 CloseTablet()
+
+-- both tablets share the ignis cookies; a second login would rotate the
+-- session and the CSRF token under the other frame's open forms
+reset(200, "ok", okBody)
+OpenTablet('FireTab')
+check("other tablet after a login: no new request", #serverEvents == 0)
+CloseTablet()
+
+-- lasting errors: one notice per session
+loadClient()
+reset(404, "unknown", { success = false, error = "unknown_user" })
+OpenTablet('eNOTF')
+CloseTablet()
+check("lasting error: notice", #notifications == 1)
+reset(200, "ok", okBody)
+OpenTablet('FireTab')
+CloseTablet()
+check("lasting error: no new request on the next opening", #serverEvents == 0 and #notifications == 0)
+
+-- passing errors: ask again on the next opening
+loadClient()
+reset(500, "<html>error</html>", nil)
+OpenTablet('eNOTF')
+CloseTablet()
+reset(200, "ok", okBody, 5)
+OpenTablet('eNOTF')
+CloseTablet()
+check("passing error: the next opening asks again", #serverEvents == 1)
+check("within the cooldown: rate limit notice", clientEvents[1] and clientEvents[1].args[2]:find("Zu viele"))
+reset(200, "ok", okBody)
+OpenTablet('eNOTF')
+CloseTablet()
+check("after the cooldown: login link", #serverEvents == 1 and nuiMessages[2] and nuiMessages[2].type == "tabletLogin")
 
 realPrint(failed == 0 and "all checks passed" or (failed .. " check(s) failed"))
 os.exit(failed == 0 and 0 or 1)
