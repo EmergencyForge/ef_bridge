@@ -25,3 +25,20 @@ Mit **ignisTab** (vormals intraTab) lässt sich ignis ganz einfach auch in FiveM
 | **eNOTF-Billing** | Schnittstelle für die Abrechnung freigegebener eNOTF-Protokolle |
 
 ![Release27122025](https://github.com/user-attachments/assets/e4c5c365-f7a3-4362-9547-3b0aaa3c7add)
+
+## Tablet-Login
+
+Der Discord-Login von ignis funktioniert im Spielbrowser nicht. Der Tablet-Login meldet Spieler deshalb über die Discord-ID an, die der FiveM-Server von ihnen kennt:
+
+1. Beim ersten Öffnen eines Tablets fragt der FiveM-Server bei ignis einen Login-Token für die Discord-ID des Spielers an.
+2. ignis sucht das aktive Konto mit dieser Discord-ID. Der Token gilt 60 Sekunden und nur für eine Anmeldung.
+3. Den Login-Link bekommt nur dieser Spieler. Das Tablet öffnet ihn und springt danach auf seine eigentliche Seite zurück.
+
+Der API-Key bleibt dabei auf dem Server. Neue Konten legt der Tablet-Login nicht an. Klappt die Anmeldung nicht (keine Discord-ID, kein passendes Konto, zu viele Versuche), bekommt der Spieler einen Hinweis und sieht die normale Login-Seite. Beim nächsten Öffnen versucht es das Tablet erneut.
+
+Voraussetzungen:
+
+- In ignis ist die Systemeinstellung `TABLET_LOGIN_ENABLED` eingeschaltet und ein API-Key gesetzt.
+- Derselbe Key steht in der `config_server.lua` bei `ServerConfig.APIKey`.
+- Der FiveM-Server setzt Discord als Identifier voraus. Nur dann liefert FiveM eine geprüfte Discord-ID.
+- In der `config.lua` steht `Config.TabletLogin.Enabled = true`.
