@@ -330,7 +330,8 @@ RegisterNUICallback('sessionIdentify', function(data, cb)
 
         local charData = GetPlayerCharacterData()
         if charData then
-            TriggerServerEvent('ignisTab:identifyCharacter', data.session_id, charData)
+            -- the server reads name and job from the framework itself
+            TriggerServerEvent('ignisTab:identifyCharacter', data.session_id)
             cb({ success = true })
         else
             cb({ success = false, error = "No character data" })

@@ -5,7 +5,8 @@ game 'gta5'
 name 'ignisTab'
 description 'ignis ingame tablets for FiveM (eNOTF + FireTab)'
 author 'EmergencyForge.de'
-version '3.0.0'
+-- Set from the release tag by the release build, a checkout of main stays 'dev'
+version 'dev'
 
 shared_scripts {
     'config.lua',

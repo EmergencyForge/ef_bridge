@@ -187,12 +187,28 @@ end
 
 exports('getReleasedENOTFProtocols', GetReleasedENOTFProtocols)
 
+-- The answer carries patient names and birthdates, and every fetch marks
+-- the protocols as billed in ignis. Players need the ACE permission
+-- (add_ace group.admin ignistab.billing allow). Server scripts trigger it
+-- via TriggerEvent and name the player who gets the result.
 RegisterServerEvent('enotf-billing:requestProtocols')
-AddEventHandler('enotf-billing:requestProtocols', function()
-    local src = source
-    local protocols = GetReleasedENOTFProtocols()
+AddEventHandler('enotf-billing:requestProtocols', function(target)
+    local src = tonumber(source) or 0
 
-    TriggerClientEvent('enotf-billing:receiveProtocols', src, protocols)
+    if src > 0 then
+        if not IsPlayerAceAllowed(src, 'ignistab.billing') then
+            print("^1[eNOTF-Billing]^7 requestProtocols denied for source " .. src .. " (" .. tostring(GetPlayerName(src)) .. "), missing ACE ignistab.billing")
+            return
+        end
+        target = src
+    else
+        target = tonumber(target)
+        if not target then
+            return
+        end
+    end
+
+    TriggerClientEvent('enotf-billing:receiveProtocols', target, GetReleasedENOTFProtocols())
 end)
 
 -- Optional background sync

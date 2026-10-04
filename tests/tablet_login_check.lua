@@ -1,6 +1,7 @@
--- Loads the tablet login code (server/main.lua, client/main.lua) with
--- stubbed FiveM natives and walks it through its branches. Server and
--- client events are wired to each other like in the game.
+-- Loads the tablet login code (server/main.lua, client/main.lua) and the
+-- billing events with stubbed FiveM natives and walks it through its
+-- branches. Server and client events are wired to each other like in the
+-- game.
 --
 --   lua tests/tablet_login_check.lua    (Lua 5.4, no FiveM needed)
 local root = arg[0]:gsub("[^/\\]+$", "") .. "../"
@@ -23,12 +24,33 @@ for _, name in ipairs({
 end
 local nuiCallbacks = {}
 function RegisterNUICallback(name, fn) nuiCallbacks[name] = fn end
-function RegisterServerEvent() end
-function RegisterNetEvent() end
+-- events a client may trigger
+local netEvents = {}
+function RegisterServerEvent(name) netEvents[name] = true end
+function RegisterNetEvent(name) netEvents[name] = true end
 function AddEventHandler(name, fn) handlers[name] = fn end
 function AddTextComponentString(text) notifications[#notifications + 1] = text end
 function SendNUIMessage(msg) nuiMessages[#nuiMessages + 1] = msg end
 function GetPlayerIdentifierByType(src, kind) return identifiers[src] end
+local aceAllowed = {}
+function IsPlayerAceAllowed(src, perm) return aceAllowed[src] == perm end
+function GetPlayerName(src) return "Spieler" .. src end
+function GetCurrentResourceName() return "ignisTab" end
+function GetResourceMetadata(resource, key) return key == 'version' and '2026.2.0' or nil end
+-- framework on the server: QBCore players by source, ESX the same
+local startedResources = { ['qb-core'] = true }
+function GetResourceState(name) return startedResources[name] and 'started' or 'missing' end
+local qbPlayers, esxPlayers = {}, {}
+local QBCore = { Functions = { GetPlayer = function(src) return qbPlayers[src] end } }
+local ESX = { GetPlayerFromId = function(src) return esxPlayers[src] end }
+exports = setmetatable({
+    ['qb-core'] = { GetCoreObject = function() return QBCore end },
+    ['es_extended'] = { getSharedObject = function() return ESX end },
+}, { __call = function() end })
+local function qbPlayer(first, last, job, citizenid)
+    return { PlayerData = { charinfo = { firstname = first, lastname = last }, job = { name = job }, citizenid = citizenid } }
+end
+qbPlayers[1] = qbPlayer("Max", "Muster", "ambulance", "ABC12345")
 function PerformHttpRequest(url, cb, method, body, headers)
     requests[#requests + 1] = { url = url, method = method, body = body, headers = headers }
     cb(nextResponse[1], nextResponse[2], {})
@@ -66,6 +88,8 @@ Config.TabletLogin.Enabled = true
 Config.eNOTF.UseProp = false
 Config.FireTab.UseProp = false
 dofile(root .. "server/main.lua")
+dofile(root .. "server/enotf_billing.lua")
+dofile(root .. "server/billing-custom.lua")
 -- fresh client state, like a player joining
 local function loadClient()
     dofile(root .. "client/main.lua")
@@ -113,6 +137,7 @@ identifiers[1] = "discord:123456789012345678"
 local ev = run(1, 200, "ok", okBody)
 check("request goes to api/tablet/login-token", requests[1].url == "https://ignis.test/api/tablet/login-token")
 check("request carries X-API-Key", requests[1].headers['X-API-Key'] == "secret-key")
+check("User-Agent carries the manifest version", requests[1].headers['User-Agent'] == "FiveM-ignisTab/2026.2.0")
 check("request body carries discord_id", requests[1].body == '{"discord_id":"123456789012345678"}')
 check("no API key in the body", not requests[1].body:find("secret"))
 check("link goes to the requesting source only", ev.name == 'ignisTab:tabletLogin' and ev.src == 1 and #clientEvents == 1)
@@ -141,6 +166,12 @@ ev = run(1, 404, "disabled", { success = false, error = "disabled" })
 check("404 disabled = setting off", ev.name == 'ignisTab:tabletLoginFailed' and ev.args[2]:find("nicht aktiviert"))
 ev = run(1, 404, "<html>not found</html>", nil)
 check("404 without JSON (older ignis) = setting off", ev.args[2]:find("nicht aktiviert"))
+ev = run(1, 409, "ambiguous", { success = false, error = "ambiguous_user" })
+check("409 ambiguous_user message", ev.name == 'ignisTab:tabletLoginFailed' and ev.args[2]:find("mehreren ignis%-Konten"))
+check("409 is not retried", not ev.args[3])
+ev = run(1, 422, "invalid", { success = false, error = "invalid_discord_id" })
+check("422 message", ev.name == 'ignisTab:tabletLoginFailed' and ev.args[2]:find("nicht angenommen"))
+check("422 is not retried", not ev.args[3])
 ev = run(1, 429, "limit", { success = false })
 check("429 message", ev.args[2]:find("Zu viele"))
 check("429 may be retried", ev.args[3] == true)
@@ -198,6 +229,81 @@ Config.Debug = false
 check("identify reaches ignis", #requests == 1 and requests[1].body:find(sessionId, 1, true))
 check("session ID never printed in full (debug on)", #printed > 0 and not printedContains(sessionId)
     and printedContains("01234567..."))
+
+-- name and job come from the framework, whatever the client sends
+reset(200, "ok", { success = true })
+source = 1
+handlers['ignisTab:identifyCharacter']("forged-session-0001", { firstName = "Fake", lastName = "Name", job = "police" })
+local body = requests[1] and requests[1].body or ""
+check("identify: name from the framework", body:find('"char_name":"Max Muster"', 1, true) ~= nil)
+check("identify: job from the framework", body:find('"char_job":"ambulance"', 1, true) ~= nil)
+check("identify: client data ignored", not body:find("Fake") and not body:find("police"))
+check("identify: QBCore citizen id is no char_id", not body:find("char_id"))
+
+reset(200, "ok", { success = true })
+source = 9
+handlers['ignisTab:identifyCharacter']("session-without-character")
+check("identify: no character on the server, no request", #requests == 0)
+
+reset(200, "ok", { success = true })
+source = 1
+handlers['ignisTab:identifyCharacter']("forged-session-0001")
+check("identify: a linked session is not sent again", #requests == 0)
+
+-- a modified client sending made-up session IDs in a loop
+qbPlayers[8] = qbPlayer("Erika", "Muster", "ambulance", "42")
+reset(200, "ok", { success = true })
+source = 8
+for i = 1, 8 do
+    handlers['ignisTab:identifyCharacter']("loop-session-" .. i)
+end
+check("identify: 5 requests per minute and player", #requests == 5)
+check("identify: numeric citizen id goes along as char_id", requests[1].body:find('"char_id":"42"', 1, true) ~= nil)
+reset(200, "ok", { success = true }, 61)
+source = 8
+handlers['ignisTab:identifyCharacter']("loop-session-9")
+check("identify: next minute goes through again", #requests == 1)
+handlers['playerDropped']()
+
+-- ESX
+Config.Framework = 'esx'
+esxPlayers[3] = {
+    identifier = "char1:abc",
+    job = { name = "fire" },
+    get = function(key) return ({ firstName = "Erika", lastName = "Brand" })[key] end,
+    getName = function() return "Steam Name" end,
+}
+dofile(root .. "server/main.lua")
+reset(200, "ok", { success = true })
+source = 3
+handlers['ignisTab:identifyCharacter']("esx-session-0001", { firstName = "Fake" })
+body = requests[1] and requests[1].body or ""
+check("identify (ESX): name and job from xPlayer", body:find('"char_name":"Erika Brand"', 1, true) ~= nil
+    and body:find('"char_job":"fire"', 1, true) ~= nil and not body:find("char_id"))
+Config.Framework = 'auto'
+dofile(root .. "server/main.lua")
+
+-- ===== billing =====
+
+local function requestProtocols(src, target)
+    reset(200, "ok", { success = true })
+    source = src
+    handlers['enotf-billing:requestProtocols'](target)
+    return clientEvents[1]
+end
+
+ev = requestProtocols(5)
+check("billing: player without ACE gets nothing", ev == nil)
+check("billing: denied request is logged", printedContains("requestProtocols denied for source 5"))
+aceAllowed[6] = 'ignistab.billing'
+ev = requestProtocols(6, 99)
+check("billing: player with ACE gets the protocols himself", ev and ev.name == 'enotf-billing:receiveProtocols' and ev.src == 6 and #clientEvents == 1)
+ev = requestProtocols('', 7)
+check("billing: server trigger sends to the named player", ev and ev.src == 7)
+ev = requestProtocols('')
+check("billing: server trigger without player sends nothing", ev == nil)
+check("billing: custom hooks are no net events", not netEvents['enotf-billing:autoSync'] and not netEvents['enotf-billing:manualSync'])
+check("billing: requestProtocols stays reachable for players with ACE", netEvents['enotf-billing:requestProtocols'] == true)
 
 -- ===== client =====
 

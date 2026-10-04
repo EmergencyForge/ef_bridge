@@ -10,31 +10,107 @@ if ServerConfig.APIKey == 'CHANGE_ME' then
     print("^1[ignisTab]^7 ServerConfig.APIKey in config_server.lua is not set, ignis will reject every request.")
 end
 
+-- Release builds get the version from the tag (build-release.yml)
+local UserAgent = 'FiveM-ignisTab/' .. (GetResourceMetadata(GetCurrentResourceName(), 'version', 0) or 'dev')
+
+-- Framework detection like client/main.lua. Done on first use, because
+-- ignisTab may start before qb-core or es_extended.
+local Framework, FrameworkName
+
+local function DetectFramework()
+    if FrameworkName then return end
+
+    local wanted = Config.Framework
+    if wanted == 'qbcore' or (wanted == 'auto' and GetResourceState('qb-core') == 'started') then
+        Framework, FrameworkName = exports['qb-core']:GetCoreObject(), 'qbcore'
+    elseif wanted == 'esx' or (wanted == 'auto' and GetResourceState('es_extended') == 'started') then
+        Framework, FrameworkName = exports['es_extended']:getSharedObject(), 'esx'
+    end
+end
+
+-- Name, job and character id from the framework on the server, never
+-- from the client
+local function GetServerCharacter(src)
+    DetectFramework()
+
+    if FrameworkName == 'qbcore' then
+        local player = Framework.Functions.GetPlayer(src)
+        local data = player and player.PlayerData
+        if data and data.charinfo then
+            return {
+                name = (data.charinfo.firstname or '') .. ' ' .. (data.charinfo.lastname or ''),
+                job = data.job and data.job.name or '',
+                cid = data.citizenid
+            }
+        end
+    elseif FrameworkName == 'esx' then
+        local xPlayer = Framework.GetPlayerFromId(src)
+        if xPlayer then
+            local first, last = xPlayer.get('firstName'), xPlayer.get('lastName')
+            return {
+                name = (first and last) and (first .. ' ' .. last) or xPlayer.getName(),
+                job = xPlayer.job and xPlayer.job.name or '',
+                cid = xPlayer.identifier
+            }
+        end
+    end
+
+    return nil
+end
+
 -- Character identify: reports which ingame character sits behind a PHP
 -- session so ignis can tie the web session to the character.
 
 local IdentifyEndpoint = BuildURL("api/character/identify.php")
 
+-- Every ignis page in the tablet reports its session ID, so repeats of an
+-- already linked session are skipped. A new ID also comes right after the
+-- tablet login, seconds after the first one, so instead of one cooldown
+-- each player gets a few requests per minute.
+local IdentifyLimit = 5
+local IdentifyWindow = 60
+local identifyState = {}
+
 RegisterServerEvent('ignisTab:identifyCharacter')
-AddEventHandler('ignisTab:identifyCharacter', function(sessionId, charData)
+AddEventHandler('ignisTab:identifyCharacter', function(sessionId)
     local src = source
 
-    if not sessionId or sessionId == "" then
+    if type(sessionId) ~= 'string' or sessionId == "" then
         if Config.Debug then
             print("^1[ignisTab]^7 identifyCharacter: no session_id received")
         end
         return
     end
 
-    if not charData or not charData.firstName then
+    local state = identifyState[src]
+    if not state then
+        state = { since = os.time(), count = 0 }
+        identifyState[src] = state
+    end
+    if state.linked == sessionId then
+        return
+    end
+    if os.time() - state.since >= IdentifyWindow then
+        state.since, state.count = os.time(), 0
+    end
+    if state.count >= IdentifyLimit then
         if Config.Debug then
-            print("^1[ignisTab]^7 identifyCharacter: no character data for source " .. src)
+            print("^3[ignisTab]^7 identifyCharacter: too many requests from source " .. src .. ", skipped")
+        end
+        return
+    end
+    state.count = state.count + 1
+
+    local char = GetServerCharacter(src)
+    if not char then
+        if Config.Debug then
+            print("^1[ignisTab]^7 identifyCharacter: no character data for source " .. src .. " (framework: " .. tostring(FrameworkName) .. ")")
         end
         return
     end
 
-    local charName = charData.firstName .. " " .. charData.lastName
-    local charJob = charData.job or ""
+    local charName = char.name
+    local charJob = char.job
 
     -- intraRP_API_Key is part of the ignis API contract, don't rename it
     local payload = {
@@ -43,6 +119,12 @@ AddEventHandler('ignisTab:identifyCharacter', function(sessionId, charData)
         char_name = charName,
         char_job = charJob
     }
+    -- ignis only takes a positive whole number here, QBCore citizen IDs
+    -- and ESX identifiers are neither
+    local cid = tonumber(char.cid)
+    if math.type(cid) == 'integer' and cid > 0 then
+        payload.char_id = cid
+    end
 
     if Config.Debug then
         print("^2[ignisTab]^7 identifyCharacter: sending to " .. IdentifyEndpoint)
@@ -52,6 +134,7 @@ AddEventHandler('ignisTab:identifyCharacter', function(sessionId, charData)
 
     PerformHttpRequest(IdentifyEndpoint, function(statusCode, response, headers)
         if statusCode == 200 then
+            state.linked = sessionId
             if Config.Debug then
                 print("^2[ignisTab]^7 identifyCharacter: OK (200)")
             end
@@ -62,7 +145,7 @@ AddEventHandler('ignisTab:identifyCharacter', function(sessionId, charData)
         end
     end, 'POST', json.encode(payload), {
         ['Content-Type'] = 'application/json',
-        ['User-Agent'] = 'FiveM-ignisTab/3.0'
+        ['User-Agent'] = UserAgent
     })
 end)
 
@@ -84,6 +167,7 @@ local lastTabletLogin = {}
 
 AddEventHandler('playerDropped', function()
     lastTabletLogin[source] = nil
+    identifyState[source] = nil
 end)
 
 -- retry: a passing error (rate limit, ignis unreachable), the client asks
@@ -137,6 +221,10 @@ AddEventHandler('ignisTab:requestTabletLogin', function(tabletType)
             TabletLoginFailed(src, tabletType, "Tablet-Login nicht möglich: Zu deiner Discord-ID gibt es kein aktives ignis-Konto.")
         elseif statusCode == 404 then
             TabletLoginFailed(src, tabletType, "Tablet-Login ist in ignis nicht aktiviert. Bitte melde dich normal an.")
+        elseif statusCode == 409 and data.error == 'ambiguous_user' then
+            TabletLoginFailed(src, tabletType, "Tablet-Login nicht möglich: Deine Discord-ID gehört zu mehreren ignis-Konten. Bitte melde dich normal an und wende dich an die Verwaltung.")
+        elseif statusCode == 422 then
+            TabletLoginFailed(src, tabletType, "Tablet-Login nicht möglich: ignis hat deine Discord-ID nicht angenommen. Bitte melde dich normal an.")
         elseif statusCode == 429 then
             TabletLoginFailed(src, tabletType, TabletLoginTooMany, true)
         else
@@ -152,6 +240,6 @@ AddEventHandler('ignisTab:requestTabletLogin', function(tabletType)
     end, 'POST', json.encode({ discord_id = discordId }), {
         ['Content-Type'] = 'application/json',
         ['X-API-Key'] = ServerConfig.APIKey,
-        ['User-Agent'] = 'FiveM-ignisTab/3.0'
+        ['User-Agent'] = UserAgent
     })
 end)
