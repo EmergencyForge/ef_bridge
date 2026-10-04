@@ -1,4 +1,6 @@
-# ignisTab — Die perfekte Ergänzung für [ignis](https://github.com/EmergencyForge/ignis)
+# ignisTab
+
+Die Ergänzung für [ignis](https://github.com/EmergencyForge/ignis) im Spiel.
 
 Mit **ignisTab** (vormals intraTab) lässt sich ignis ganz einfach auch in FiveM benutzen! Einfach die Ressource in das entsprechende Verzeichnis des FiveM-Servers ziehen, gewünschte Anpassungen an der `config.lua` vornehmen (wichtig: Der Link zur ignis-Installation) und startbereit ist die Ingame-Integration. Das System befindet sich aktuell in Entwicklung und wird stetig verändert.
 
@@ -6,6 +8,8 @@ Mit **ignisTab** (vormals intraTab) lässt sich ignis ganz einfach auch in FiveM
 > Um ignisTab zu verwenden wird eine Installation von ignis zwingend benötigt!
 
 ## Installation
+
+Die ausführliche Anleitung mit allen Einstellungen, Rechten und Hilfe bei Problemen steht in der [INSTALL.md](INSTALL.md). Kurz:
 
 1. Neuestes Release-ZIP von der [Releases-Seite](https://github.com/EmergencyForge/ignisTab/releases) herunterladen
 2. Den Ordner `ignisTab` in das `resources`-Verzeichnis des FiveM-Servers entpacken

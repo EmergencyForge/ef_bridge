@@ -126,7 +126,7 @@ Config.ENOTFBilling = {
 
     -- Skip protocols that already exist in the FiveM DB
     -- (needs the enotf_billing table).
-    -- Note: name + 123, name + 123_1, name + 123_2 count as one billing —
+    -- Note: name + 123, name + 123_1, name + 123_2 count as one billing;
     -- the base number before the "_" is what matters.
     FilterProcessed = true
 }
