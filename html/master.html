@@ -4,9 +4,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ignisTab</title>
+    <title>ef_bridge</title>
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/firetab.css">
+    <link rel="stylesheet" href="css/admin.css">
     <style>
         /* Both tablet containers hidden by default */
         #tabletContainer,
@@ -76,9 +77,33 @@
         </div>
     </div>
 
+    <!-- Admin panel (/efbridge), filled by js/admin.js -->
+    <div class="efb-admin" id="adminPanel" hidden>
+        <div class="efb-panel" role="dialog" aria-modal="true" aria-labelledby="efbTitle">
+            <header class="efb-header">
+                <h1 class="efb-header__title" id="efbTitle">ef_bridge</h1>
+                <span class="efb-header__meta" id="efbVersion"></span>
+                <span class="efb-header__spacer"></span>
+                <button type="button" class="efb-btn efb-btn--ghost" id="efbRefresh">Neu laden</button>
+                <button type="button" class="efb-btn efb-btn--ghost efb-btn--icon" id="efbClose" aria-label="Schließen (ESC)">×</button>
+            </header>
+            <div class="efb-body">
+                <nav class="efb-nav" id="efbNav" aria-label="Bereiche"></nav>
+                <main class="efb-content" id="efbContent"></main>
+            </div>
+            <footer class="efb-footer">
+                <span class="efb-footer__pending" id="efbPending"></span>
+                <button type="button" class="efb-btn efb-btn--ghost" id="efbDiscard" disabled>Verwerfen</button>
+                <button type="button" class="efb-btn efb-btn--primary" id="efbSave" disabled>Speichern</button>
+            </footer>
+        </div>
+        <div class="efb-toast" id="efbToast" role="status" hidden></div>
+    </div>
+
     <script src="js/firetab.js"></script>
     <script src="js/script.js"></script>
     <script src="js/master.js"></script>
+    <script src="js/admin.js"></script>
 </body>
 
 </html>

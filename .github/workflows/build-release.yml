@@ -36,11 +36,11 @@ jobs:
 
       - name: Build release ZIP
         run: |
-          ARCHIVE_NAME="ignisTab-${{ env.version }}.zip"
+          ARCHIVE_NAME="ef_bridge-${{ env.version }}.zip"
 
-          # Stage everything into an ignisTab/ folder so the archive
+          # Stage everything into an ef_bridge/ folder so the archive
           # extracts straight into a resources directory.
-          mkdir -p build/ignisTab
+          mkdir -p build/ef_bridge
           rsync -a \
             --exclude '.git' \
             --exclude '.github' \
@@ -54,14 +54,14 @@ jobs:
             --exclude '.qodo' \
             --exclude '.claude' \
             --exclude 'CLAUDE.md' \
-            ./ build/ignisTab/
+            ./ build/ef_bridge/
 
           # The version goes into the packed manifest only, nothing is
           # pushed back to main.
-          sed -i "s/^version '.*'/version '${{ env.plain_version }}'/" build/ignisTab/fxmanifest.lua
-          grep "^version" build/ignisTab/fxmanifest.lua
+          sed -i "s/^version '.*'/version '${{ env.plain_version }}'/" build/ef_bridge/fxmanifest.lua
+          grep "^version" build/ef_bridge/fxmanifest.lua
 
-          (cd build && zip -q -r "../$ARCHIVE_NAME" ignisTab)
+          (cd build && zip -q -r "../$ARCHIVE_NAME" ef_bridge)
 
           echo "archive_name=$ARCHIVE_NAME" >> $GITHUB_ENV
           echo "archive_size=$(du -h "$ARCHIVE_NAME" | cut -f1)" >> $GITHUB_ENV
@@ -121,7 +121,7 @@ jobs:
                 {name: "Build", value: $build, inline: true},
                 {name: "SHA256", value: ("`" + $checksum + "…`"), inline: true}
               ],
-              footer: {text: "ignisTab Release Build — Integrität verifiziert ✓"},
+              footer: {text: "ef_bridge Release Build — Integrität verifiziert ✓"},
               timestamp: $ts
             }]}' | curl -s -H "Content-Type: application/json" -d @- "$DISCORD_WEBHOOK"
 
@@ -142,6 +142,6 @@ jobs:
               title: "Release Build fehlgeschlagen",
               description: ("Der Build für **" + (if $version != "" then $version else $ref end) + "** ist fehlgeschlagen.\n\n[Build-Log ansehen](" + $url + ")"),
               color: 15158332,
-              footer: {text: "ignisTab Release Build"},
+              footer: {text: "ef_bridge Release Build"},
               timestamp: $ts
             }]}' | curl -s -H "Content-Type: application/json" -d @- "$DISCORD_WEBHOOK"

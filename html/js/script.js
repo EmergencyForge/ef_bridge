@@ -8,7 +8,7 @@ let currentUrl = "";
 // NUI iframes refuse plain HTTP, so normalize every URL to HTTPS
 function ensureHttps(url) {
   if (!url) {
-    if (DEBUG) console.warn("[ignisTab] ensureHttps: URL is null or undefined");
+    if (DEBUG) console.warn("[ef_bridge] ensureHttps: URL is null or undefined");
     return url;
   }
 
@@ -18,14 +18,14 @@ function ensureHttps(url) {
   if (url.toLowerCase().startsWith("http://")) {
     url = url.replace(/^http:\/\//i, "https://");
     if (DEBUG)
-      console.warn("[ignisTab] URL converted from HTTP to HTTPS:", originalUrl, "→", url);
+      console.warn("[ef_bridge] URL converted from HTTP to HTTPS:", originalUrl, "→", url);
   } else if (
     !url.toLowerCase().startsWith("https://") &&
     !url.toLowerCase().startsWith("//")
   ) {
     url = "https://" + url;
     if (DEBUG)
-      console.log("[ignisTab] Added HTTPS prefix:", originalUrl, "→", url);
+      console.log("[ef_bridge] Added HTTPS prefix:", originalUrl, "→", url);
   }
 
   // add a trailing slash to directory-looking paths to avoid HTTP redirects
@@ -66,7 +66,7 @@ window.addEventListener("message", function (event) {
 function openTablet(charData, url) {
   if (isTabletOpen) {
     if (DEBUG)
-      console.log("[ignisTab] Tablet already opening/open, ignoring duplicate call");
+      console.log("[ef_bridge] Tablet already opening/open, ignoring duplicate call");
     return;
   }
 
