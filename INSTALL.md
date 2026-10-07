@@ -34,7 +34,7 @@ ef_bridge hat keine config-Dateien. Alles stellst du im Spiel im Admin-Panel (`/
 
 ### 1. Herunterladen und entpacken
 
-Lade auf der [Release-Seite](https://github.com/EmergencyForge/ignisTab/releases) die neueste ZIP-Datei herunter und entpack sie in den `resources`-Ordner deines Servers. Danach gibt es einen Ordner `resources/ef_bridge`.
+Lade auf der [Release-Seite](https://github.com/EmergencyForge/ef_bridge/releases) die neueste ZIP-Datei herunter und entpack sie in den `resources`-Ordner deines Servers. Danach gibt es einen Ordner `resources/ef_bridge`.
 
 Behalte den Ordnernamen `ef_bridge` bei. Andere Skripte sprechen die Ressource über `exports['ef_bridge']` an, und der Server legt die Einstellungen unter diesem Namen ab.
 
@@ -294,4 +294,4 @@ Lade die neue ZIP-Datei herunter und ersetze den Ordner `resources/ef_bridge`, d
 
 **Mehr Ausgaben:** `efbridge set Debug on` schreibt ausführliche Meldungen in die Server- und F8-Konsole.
 
-Fragen und Fehlermeldungen gerne als Issue unter <https://github.com/EmergencyForge/ignisTab/issues>.
+Fragen und Fehlermeldungen gerne als Issue unter <https://github.com/EmergencyForge/ef_bridge/issues>.

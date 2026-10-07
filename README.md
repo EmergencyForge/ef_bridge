@@ -10,7 +10,7 @@ Jedes Modul lässt sich einzeln einschalten. Wer nur Lex nutzt, braucht keine ig
 
 Die ausführliche Anleitung mit allen Einstellungen, Rechten und Hilfe bei Problemen steht in der [INSTALL.md](INSTALL.md). Kurz:
 
-1. Neuestes Release-ZIP von der [Releases-Seite](https://github.com/EmergencyForge/ignisTab/releases) herunterladen
+1. Neuestes Release-ZIP von der [Releases-Seite](https://github.com/EmergencyForge/ef_bridge/releases) herunterladen
 2. Den Ordner `ef_bridge` in das `resources`-Verzeichnis des FiveM-Servers entpacken
 3. `ensure ef_bridge` und `add_ace group.admin ef_bridge.admin allow` in die `server.cfg` eintragen
 4. Server starten, im Spiel `/efbridge` öffnen und Adressen, API-Schlüssel und die gewünschten Module eintragen
