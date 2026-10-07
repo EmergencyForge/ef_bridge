@@ -1,139 +1,81 @@
+-- ef_bridge: shared settings. Every player downloads this file with the
+-- resource, so nothing secret goes in here. API keys and server-only
+-- modules live in config_server.lua.
+--
+-- Most values can also be changed ingame with /efbridge (ACE
+-- ef_bridge.admin). Ingame changes are stored on the server and win over
+-- this file until they are reset in the panel.
 Config = {}
 
--- Framework detection ('auto' picks up QBCore or ESX on its own)
+-- 'auto' picks up QBCore (or Qbox) or ESX on its own
 Config.Framework = 'auto' -- 'auto', 'qbcore' or 'esx'
-
--- ========================================
--- URL & API
--- ========================================
--- Base URL of your ignis installation, e.g.
---   https://your-domain.tld/
---   https://your-domain.tld/ignis/
-Config.BaseURL = 'https://deine-url.de/' -- keep the trailing slash
-
--- The API key lives in config_server.lua. Every player downloads this
--- file, so never put it here.
 
 Config.Debug = false
 
 -- ========================================
--- TABLET LOGIN
+-- ADMIN PANEL
 -- ========================================
--- The Discord login of ignis doesn't work in the game browser. With this
--- on, the server fetches a one-time login link from ignis for the
--- player's Discord ID the first time a tablet loads. Needs:
---   * ignis: system setting TABLET_LOGIN_ENABLED switched on
---   * ServerConfig.APIKey set in config_server.lua
---   * FiveM: Discord set as required identifier, only then does FiveM
---     hand out a verified Discord ID
--- Players without a Discord ID or ignis account keep the normal login page.
-Config.TabletLogin = {
-    Enabled = false
+Config.Admin = {
+    Command = 'efbridge',     -- /efbridge opens the panel
+    Ace = 'ef_bridge.admin'   -- add_ace group.admin ef_bridge.admin allow
 }
 
 -- ========================================
--- ENOTF TABLET
+-- IGNIS (tablets, EMD sync, billing)
 -- ========================================
-Config.eNOTF = {
-    Enabled = true,
-    Command = 'enotf',
-    OpenKey = 'F9', -- default key, nil = players bind it themselves
-    AllowedJobs = {
-        'ambulance',
-        'admin'
+Config.Ignis = {
+    -- Base URL of your ignis installation, with the trailing slash, e.g.
+    --   https://your-domain.tld/
+    --   https://your-domain.tld/ignis/
+    BaseURL = 'https://deine-ignis-url.de/',
+
+    -- The Discord login of ignis doesn't work in the game browser. With
+    -- this on, the server fetches a one-time login link from ignis for the
+    -- player's Discord ID the first time a tablet loads. Needs:
+    --   * ignis: system setting TABLET_LOGIN_ENABLED switched on
+    --   * ServerConfig.Ignis.APIKey set in config_server.lua
+    --   * FiveM: Discord as required identifier, only then does FiveM
+    --     hand out a verified Discord ID
+    TabletLogin = false
+}
+
+-- ========================================
+-- TABLETS
+-- ========================================
+Config.Tablets = {
+    eNOTF = {
+        Enabled = true,
+        Command = 'enotf',
+        OpenKey = 'F9', -- default key, nil = players bind it themselves
+        Path = 'enotf/overview.php', -- page inside ignis
+        AllowedJobs = { 'ambulance', 'admin' },
+        RequireItem = false,
+        RequiredItem = 'tablet',
+        UseProp = true,
+        Prop = {
+            model = 'notfpad',
+            bone = 18905,
+            offset = { x = 0.1240, y = 0.0550, z = 0.1550, xRot = -76.0, yRot = -186.0, zRot = 58.3 }
+        }
     },
-    RequireItem = false,
-    RequiredItem = 'tablet',
-    UseProp = true,
-    Prop = {
-        model = 'notfpad',
-        bone = 18905,
-        offset = {
-            x = 0.1240,
-            y = 0.0550,
-            z = 0.1550,
-            xRot = -76.0,
-            yRot = -186.0,
-            zRot = 58.3
+
+    FireTab = {
+        Enabled = true,
+        Command = 'firetab',
+        OpenKey = nil,
+        Path = 'einsatz/list.php',
+        AllowedJobs = { 'fire', 'admin' },
+        RequireItem = false,
+        RequiredItem = 'tablet',
+        UseProp = true,
+        Prop = {
+            model = 'firetab',
+            bone = 18905,
+            offset = { x = 0.1240, y = 0.0450, z = 0.1550, xRot = 18.0, yRot = -186.0, zRot = 58.3 }
         }
     }
 }
 
--- ========================================
--- FIRETAB TABLET
--- ========================================
-Config.FireTab = {
-    Enabled = true,
-    Command = 'firetab',
-    OpenKey = nil, -- default key, nil = players bind it themselves
-    AllowedJobs = {
-        'fire',
-        'admin'
-    },
-    RequireItem = false,
-    RequiredItem = 'tablet',
-    UseProp = true,
-    Prop = {
-        model = 'firetab',
-        bone = 18905,
-        offset = {
-            x = 0.1240,
-            y = 0.0450,
-            z = 0.1550,
-            xRot = 18.0,
-            yRot = -186.0,
-            zRot = 58.3
-        }
-    }
-}
-
--- ========================================
--- EMD SYNC
--- ========================================
-Config.EMDSync = {
-    Enabled = false,
-    HeartbeatInterval = 5000, -- base tick in ms (default: 5000 = 5s)
-
-    -- Dispatch data (vehicles, mission details, patients)
-    DispatchSync = {
-        Enabled = true,
-        TickMultiplier = 6 -- every 6 ticks = every 30s at a 5s heartbeat
-    },
-
-    -- Realtime status sync (both ways: FiveM <-> web)
-    StatusSync = {
-        Enabled = true,
-        SyncStatuses = {'C', '1', '2', '3', '4', '7', '8'}, -- statuses to sync
-        SourceTable = 'emd_dispatchlog', -- table holding the status messages
-        TickMultiplier = 1 -- every tick = every 5s at a 5s heartbeat
-    },
-
-    -- Situation reports per mission
-    LagemeldungSync = {
-        Enabled = true,
-        TickMultiplier = 6
-    }
-}
-
--- ========================================
--- ENOTF BILLING
--- ========================================
-Config.ENOTFBilling = {
-    Enabled = false,
-
-    AutoSync = false, -- sync in the background automatically
-    SyncInterval = 900000, -- ms between syncs (default: 15 min)
-
-    -- Skip protocols that already exist in the FiveM DB
-    -- (needs the enotf_billing table).
-    -- Note: name + 123, name + 123_1, name + 123_2 count as one billing;
-    -- the base number before the "_" is what matters.
-    FilterProcessed = true
-}
-
--- ========================================
--- TABLET ANIMATION
--- ========================================
 Config.Animation = {
     dict = "amb@world_human_seat_wall_tablet@female@base",
     anim = "base",

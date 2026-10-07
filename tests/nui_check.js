@@ -54,7 +54,7 @@ function load() {
       warn: (...a) => logged.push(a),
       error: (...a) => logged.push(a),
     },
-    GetParentResourceName: () => "ignisTab",
+    GetParentResourceName: () => "ef_bridge",
     fetch: (url, opts) => {
       fetched.push({ url, body: opts && opts.body });
       return Promise.resolve();

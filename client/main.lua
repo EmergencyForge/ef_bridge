@@ -1,6 +1,24 @@
 local Framework = nil
 local FrameworkName = nil
 
+for _, note in ipairs(Settings.MigrateLegacy(false)) do
+    print("^1[ef_bridge]^7 old config layout: " .. note)
+end
+
+-- The server sends the shared settings, its ingame changes included. Until
+-- they arrive, config.lua applies.
+RegisterNetEvent('ef_bridge:settings')
+AddEventHandler('ef_bridge:settings', function(values)
+    if type(values) ~= 'table' then return end
+    for key, value in pairs(values) do
+        local entry = Settings.ByKey[key]
+        if entry and entry.scope == 'shared' then
+            Settings.Write(entry, value)
+        end
+    end
+end)
+TriggerServerEvent('ef_bridge:settings:request')
+
 -- Framework detection
 CreateThread(function()
     if Config.Framework == 'auto' then
@@ -20,10 +38,10 @@ CreateThread(function()
     end
 
     if Config.Debug then
-        print("^2[ignisTab]^7 Client framework detected: " .. (FrameworkName or "None"))
-        print("^2[ignisTab]^7 Loaded BaseURL from config: ^3" .. (Config.BaseURL or "EMPTY") .. "^7")
-        print("^2[ignisTab]^7 eNOTF Command: ^3/" .. Config.eNOTF.Command .. "^7")
-        print("^2[ignisTab]^7 FireTab Command: ^3/" .. Config.FireTab.Command .. "^7")
+        print("^2[ef_bridge]^7 Client framework detected: " .. (FrameworkName or "None"))
+        print("^2[ef_bridge]^7 ignis BaseURL: ^3" .. (Config.Ignis.BaseURL or "EMPTY") .. "^7")
+        print("^2[ef_bridge]^7 eNOTF Command: ^3/" .. Config.Tablets.eNOTF.Command .. "^7")
+        print("^2[ef_bridge]^7 FireTab Command: ^3/" .. Config.Tablets.FireTab.Command .. "^7")
     end
 end)
 
@@ -38,7 +56,9 @@ local tabletLoginRequested = false
 local tabletDict = Config.Animation.dict
 local tabletAnim = Config.Animation.anim
 
-local function ShowNotification(message, type)
+-- Exposed for client/admin.lua, the panel uses the same notifications
+
+function ShowNotification(message, type)
     if FrameworkName == 'qbcore' then
         Framework.Functions.Notify(message, type or "primary")
     elseif FrameworkName == 'esx' then
@@ -90,7 +110,7 @@ function CreateTabletProp(tabletType)
     local ped = PlayerPedId()
     local coords = GetEntityCoords(ped)
 
-    local tabletConfig = Config[tabletType]
+    local tabletConfig = Config.Tablets[tabletType]
     if not tabletConfig or not tabletConfig.Prop then
         if Config.Debug then
             print("No prop config found for " .. tabletType)
@@ -169,7 +189,7 @@ function PlayerHasItem(itemName)
     if GetResourceState('ox_inventory') == 'started' then
         local count = exports.ox_inventory:Search('count', itemName)
         if Config.Debug then
-            print("^2[ignisTab]^7 ox_inventory item check: " .. itemName .. " = " .. tostring(count))
+            print("^2[ef_bridge]^7 ox_inventory item check: " .. itemName .. " = " .. tostring(count))
         end
         return count and count > 0
     end
@@ -201,6 +221,11 @@ function PlayerHasItem(itemName)
 end
 
 function OpenTablet(tabletType)
+    -- the admin panel holds the NUI focus
+    if AdminPanelOpen and AdminPanelOpen() then
+        return
+    end
+
     if isTabletOpen then
         if Config.Debug then
             print("Tablet already open")
@@ -208,7 +233,7 @@ function OpenTablet(tabletType)
         return
     end
 
-    local config = Config[tabletType]
+    local config = Config.Tablets[tabletType]
     if not config or not config.Enabled then
         ShowNotification("Dieses Tablet ist nicht aktiviert!", "error")
         return
@@ -232,7 +257,7 @@ function OpenTablet(tabletType)
 
         if not found then
             if Config.Debug then
-                print("^1[ignisTab]^7 Player job '" .. tostring(charData.job) .. "' not in AllowedJobs for " .. tabletType .. ": " .. json.encode(config.AllowedJobs))
+                print("^1[ef_bridge]^7 Player job '" .. tostring(charData.job) .. "' not in AllowedJobs for " .. tabletType .. ": " .. json.encode(config.AllowedJobs))
             end
             ShowNotification("Du darfst dieses Tablet nicht nutzen!", "error")
             return
@@ -257,14 +282,7 @@ function OpenTablet(tabletType)
     SetNuiFocus(true, true)
     SetNuiFocusKeepInput(false)
 
-    local url
-    if tabletType == 'eNOTF' then
-        url = BuildURL('enotf/overview.php')
-    elseif tabletType == 'FireTab' then
-        url = BuildURL('einsatz/list.php')
-    else
-        url = BuildURL('')
-    end
+    local url = BuildURL(config.Path or '')
 
     SendNUIMessage({
         type = "openTablet",
@@ -277,9 +295,9 @@ function OpenTablet(tabletType)
         print("Tablet opened with URL:", url)
     end
 
-    if Config.TabletLogin and Config.TabletLogin.Enabled and not tabletLoginRequested then
+    if Config.Ignis.TabletLogin and not tabletLoginRequested then
         tabletLoginRequested = true
-        TriggerServerEvent('ignisTab:requestTabletLogin', tabletType)
+        TriggerServerEvent('ef_bridge:requestTabletLogin', tabletType)
     end
 end
 
@@ -325,13 +343,13 @@ RegisterNUICallback('sessionIdentify', function(data, cb)
     if data and data.session_id then
         if Config.Debug then
             -- shortened: the full ID would let anyone reading the log take over the session
-            print("^2[ignisTab]^7 Received PHP session_id: " .. tostring(data.session_id):sub(1, 8) .. "...")
+            print("^2[ef_bridge]^7 Received PHP session_id: " .. tostring(data.session_id):sub(1, 8) .. "...")
         end
 
         local charData = GetPlayerCharacterData()
         if charData then
             -- the server reads name and job from the framework itself
-            TriggerServerEvent('ignisTab:identifyCharacter', data.session_id)
+            TriggerServerEvent('ef_bridge:identifyCharacter', data.session_id)
             cb({ success = true })
         else
             cb({ success = false, error = "No character data" })
@@ -349,8 +367,8 @@ end)
 -- Tablet login: the server fetched a one-time login link for this player,
 -- the NUI opens it in the tablet frame. Don't print it, its token signs
 -- the player in.
-RegisterNetEvent('ignisTab:tabletLogin')
-AddEventHandler('ignisTab:tabletLogin', function(tabletType, url)
+RegisterNetEvent('ef_bridge:tabletLogin')
+AddEventHandler('ef_bridge:tabletLogin', function(tabletType, url)
     SendNUIMessage({
         type = "tabletLogin",
         tabletType = tabletType,
@@ -362,8 +380,8 @@ end)
 -- session). Passing errors (rate limit, ignis unreachable) ask again on the
 -- next opening; lasting ones (no Discord ID, no account, login off in
 -- ignis) come up once per session.
-RegisterNetEvent('ignisTab:tabletLoginFailed')
-AddEventHandler('ignisTab:tabletLoginFailed', function(tabletType, message, retry)
+RegisterNetEvent('ef_bridge:tabletLoginFailed')
+AddEventHandler('ef_bridge:tabletLoginFailed', function(tabletType, message, retry)
     if retry then
         tabletLoginRequested = false
     end
@@ -378,7 +396,7 @@ CreateThread(function()
         local ped = PlayerPedId()
 
         if isTabletOpen then
-            local config = currentTabletType and Config[currentTabletType]
+            local config = currentTabletType and Config.Tablets[currentTabletType]
             local usesProp = config and config.UseProp
 
             DisableControlAction(0, 322, true) -- ESC
@@ -401,16 +419,18 @@ CreateThread(function()
     end
 end)
 
--- Commands
-RegisterCommand(Config.eNOTF.Command, function()
+-- Commands. Names and default keys come from config.lua: a key mapping
+-- can't be taken back at runtime, so a new command or key from the admin
+-- panel applies after a restart.
+RegisterCommand(Config.Tablets.eNOTF.Command, function()
     OpenTablet('eNOTF')
 end, false)
 
-RegisterCommand(Config.FireTab.Command, function()
+RegisterCommand(Config.Tablets.FireTab.Command, function()
     OpenTablet('FireTab')
 end, false)
 
-RegisterCommand('ignistabtest', function()
+RegisterCommand('efbridgetest', function()
     local charData = GetPlayerCharacterData()
     if charData then
         ShowNotification("Character: " .. charData.firstName .. " " .. charData.lastName .. " (" .. charData.job .. ")", "success")
@@ -422,18 +442,15 @@ end, false)
 -- Key mappings - players can rebind these under
 -- FiveM settings > key bindings > FiveM.
 -- OpenKey = nil still lists the binding, just without a default key.
-if Config.eNOTF.Enabled then
-    RegisterKeyMapping(Config.eNOTF.Command, 'eNOTF Tablet öffnen/schließen', 'keyboard', Config.eNOTF.OpenKey or '')
-end
-
-if Config.FireTab.Enabled then
-    RegisterKeyMapping(Config.FireTab.Command, 'FireTab Tablet öffnen/schließen', 'keyboard', Config.FireTab.OpenKey or '')
-end
+-- Registered even while a tablet is switched off, so switching it on in
+-- the admin panel brings the binding along.
+RegisterKeyMapping(Config.Tablets.eNOTF.Command, 'eNOTF Tablet öffnen/schließen', 'keyboard', Config.Tablets.eNOTF.OpenKey or '')
+RegisterKeyMapping(Config.Tablets.FireTab.Command, 'FireTab Tablet öffnen/schließen', 'keyboard', Config.Tablets.FireTab.OpenKey or '')
 
 -- Status changes coming from the web side (FireTab) get pushed into
 -- emergencydispatch here.
-RegisterNetEvent('ignisTab:applyStatus')
-AddEventHandler('ignisTab:applyStatus', function(status)
+RegisterNetEvent('ef_bridge:applyStatus')
+AddEventHandler('ef_bridge:applyStatus', function(status)
     if not status or status == "" then
         return
     end

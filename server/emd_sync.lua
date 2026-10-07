@@ -2,33 +2,13 @@
 -- reports into a single periodic request against the ignis backend and
 -- applies whatever the backend sends back.
 
-local PHPEndpoint = BuildURL("api/emd/sync.php")
-
-if Config.Debug then
-    print("^2[EMD-Sync]^7 endpoint: " .. (PHPEndpoint or "MISSING"))
+-- Built on every request, so a new ignis address from the admin panel
+-- applies right away
+local function Endpoint()
+    return BuildURL("api/emd/sync.php")
 end
 
--- ========================================
--- DATABASE HELPER
--- ========================================
-local function ExecuteQuery(query, parameters)
-    local p = promise.new()
-    if GetResourceState('oxmysql') == 'started' then
-        exports.oxmysql:execute(query, parameters, function(result)
-            p:resolve(result)
-        end)
-    elseif MySQL and MySQL.Async then
-        MySQL.Async.fetchAll(query, parameters, function(result)
-            p:resolve(result)
-        end)
-    else
-        if Config.Debug then
-            print("^1[EMD-Sync]^7 No MySQL resource found. Install oxmysql or mysql-async.")
-        end
-        p:resolve(nil)
-    end
-    return Citizen.Await(p)
-end
+local ExecuteQuery = Bridge.Query
 
 -- ========================================
 -- HEARTBEAT STATE
@@ -118,7 +98,7 @@ local function ProcessStatusChanges(statusChanges)
             local playerSource = FindPlayerSourceByVehicleName(vehicleName)
 
             if playerSource then
-                TriggerClientEvent('ignisTab:applyStatus', playerSource, tostring(status))
+                TriggerClientEvent('ef_bridge:applyStatus', playerSource, tostring(status))
                 applied = applied + 1
             else
                 notFound = notFound + 1
@@ -260,14 +240,14 @@ local function GetAllLagemeldungen(dispatchNumbers)
 end
 
 local function LoadLastStatusId()
-    if not Config.EMDSync or not Config.EMDSync.StatusSync or not Config.EMDSync.StatusSync.Enabled then
+    if not ServerConfig.EMDSync or not ServerConfig.EMDSync.StatusSync or not ServerConfig.EMDSync.StatusSync.Enabled then
         return
     end
     local query = string.format([[
         SELECT MAX(id) as max_id
         FROM %s
         WHERE type = 'status'
-    ]], Config.EMDSync.StatusSync.SourceTable)
+    ]], ServerConfig.EMDSync.StatusSync.SourceTable)
     local result = ExecuteQuery(query, {})
     if result and result[1] and result[1].max_id then
         lastStatusId = result[1].max_id
@@ -278,11 +258,11 @@ local function LoadLastStatusId()
 end
 
 local function GetNewStatusMessages()
-    if not Config.EMDSync or not Config.EMDSync.StatusSync or not Config.EMDSync.StatusSync.Enabled then
+    if not ServerConfig.EMDSync or not ServerConfig.EMDSync.StatusSync or not ServerConfig.EMDSync.StatusSync.Enabled then
         return nil
     end
 
-    local syncStatuses = Config.EMDSync.StatusSync.SyncStatuses
+    local syncStatuses = ServerConfig.EMDSync.StatusSync.SyncStatuses
     local placeholders = {}
     local params = { lastStatusId }
     for i, status in ipairs(syncStatuses) do
@@ -297,7 +277,7 @@ local function GetNewStatusMessages()
         AND type = 'status'
         AND text IN (%s)
         ORDER BY id ASC
-    ]], Config.EMDSync.StatusSync.SourceTable, table.concat(placeholders, ','))
+    ]], ServerConfig.EMDSync.StatusSync.SourceTable, table.concat(placeholders, ','))
 
     local result = ExecuteQuery(query, params)
     if Config.Debug and result and #result > 0 then
@@ -401,7 +381,7 @@ local function CollectDispatchData(tick)
     end
 
     local lagemeldungMap = {}
-    if Config.EMDSync.LagemeldungSync and Config.EMDSync.LagemeldungSync.Enabled then
+    if ServerConfig.EMDSync.LagemeldungSync and ServerConfig.EMDSync.LagemeldungSync.Enabled then
         lagemeldungMap = GetAllLagemeldungen(dispatchNumbers)
     end
 
@@ -499,12 +479,12 @@ local function SendVehicleRegistry()
     end
 
     local payload = {
-        intraRP_API_Key = ServerConfig.APIKey,
+        intraRP_API_Key = Bridge.IgnisKey(),
         timestamp = os.time(),
         vehicle_registry = result
     }
 
-    PerformHttpRequest(PHPEndpoint, function(statusCode, response, headers)
+    PerformHttpRequest(Endpoint(), function(statusCode, response, headers)
         if Config.Debug then
             if statusCode == 200 then
                 print("^2[VehicleRegistry]^7 registry sent")
@@ -514,7 +494,7 @@ local function SendVehicleRegistry()
         end
     end, 'POST', json.encode(payload), {
         ['Content-Type'] = 'application/json',
-        ['User-Agent'] = 'FiveM-Heartbeat/2.0'
+        ['User-Agent'] = Bridge.UserAgent
     })
 end
 
@@ -524,22 +504,22 @@ end
 
 local function BuildHeartbeatPayload(tick)
     local payload = {
-        intraRP_API_Key = ServerConfig.APIKey,
+        intraRP_API_Key = Bridge.IgnisKey(),
         timestamp = os.time(),
         protocol_version = 2,
         serverName = GetConvar('sv_projectName', 'Unknown Server'),
         serverTime = os.date('%Y-%m-%d %H:%M:%S'),
         heartbeat = {
             tick = tick,
-            interval = Config.EMDSync.HeartbeatInterval
+            interval = ServerConfig.EMDSync.HeartbeatInterval
         },
         request_modules = {}
     }
 
     local hasData = false
 
-    if Config.EMDSync.DispatchSync and Config.EMDSync.DispatchSync.Enabled
-       and tick % (Config.EMDSync.DispatchSync.TickMultiplier or 6) == 0 then
+    if ServerConfig.EMDSync.DispatchSync and ServerConfig.EMDSync.DispatchSync.Enabled
+       and tick % (ServerConfig.EMDSync.DispatchSync.TickMultiplier or 6) == 0 then
         local dispatchData = CollectDispatchData(tick)
         if dispatchData then
             payload.dispatch_data = dispatchData
@@ -547,8 +527,8 @@ local function BuildHeartbeatPayload(tick)
         end
     end
 
-    if Config.EMDSync.StatusSync and Config.EMDSync.StatusSync.Enabled
-       and tick % (Config.EMDSync.StatusSync.TickMultiplier or 1) == 0 then
+    if ServerConfig.EMDSync.StatusSync and ServerConfig.EMDSync.StatusSync.Enabled
+       and tick % (ServerConfig.EMDSync.StatusSync.TickMultiplier or 1) == 0 then
         local statusData = CollectStatusUpdates()
         if statusData then
             payload.status_updates = statusData
@@ -559,8 +539,8 @@ local function BuildHeartbeatPayload(tick)
         hasData = true
     end
 
-    if Config.EMDSync.LagemeldungSync and Config.EMDSync.LagemeldungSync.Enabled
-       and tick % (Config.EMDSync.LagemeldungSync.TickMultiplier or 6) == 0 then
+    if ServerConfig.EMDSync.LagemeldungSync and ServerConfig.EMDSync.LagemeldungSync.Enabled
+       and tick % (ServerConfig.EMDSync.LagemeldungSync.TickMultiplier or 6) == 0 then
         local lageData = CollectLagemeldungen(tick)
         if lageData then
             payload.lagemeldungen = lageData
@@ -593,7 +573,7 @@ local function HandleHeartbeatResponse(statusCode, response)
         -- once instead of on every heartbeat
         if (statusCode == 401 or statusCode == 403) and not apiKeyHintShown then
             apiKeyHintShown = true
-            print("^1[Heartbeat]^7 API key rejected (" .. statusCode .. "), check ServerConfig.APIKey in config_server.lua")
+            print("^1[Heartbeat]^7 API key rejected (" .. statusCode .. "), check ServerConfig.Ignis.APIKey in config_server.lua")
         end
         if Config.Debug then
             print("^1[Heartbeat]^7 request failed, status code: " .. tostring(statusCode))
@@ -647,7 +627,7 @@ local function HandleHeartbeatResponse(statusCode, response)
 end
 
 function PerformHeartbeat(tick)
-    if not Config.EMDSync or not Config.EMDSync.Enabled then
+    if not ServerConfig.EMDSync or not ServerConfig.EMDSync.Enabled then
         return
     end
 
@@ -668,50 +648,57 @@ function PerformHeartbeat(tick)
         print("^2[Heartbeat]^7 tick " .. tick .. " -> " .. table.concat(modules, " + "))
     end
 
-    PerformHttpRequest(PHPEndpoint, function(statusCode, response, headers)
+    PerformHttpRequest(Endpoint(), function(statusCode, response, headers)
         HandleHeartbeatResponse(statusCode, response)
     end, 'POST', json.encode(payload), {
         ['Content-Type'] = 'application/json',
-        ['User-Agent'] = 'FiveM-Heartbeat/2.0'
+        ['User-Agent'] = Bridge.UserAgent
     })
 end
 
 -- ========================================
 -- HEARTBEAT TIMER
 -- ========================================
+-- Keeps running while the sync is switched off, so switching it on in the
+-- admin panel takes effect on the next tick without a restart.
 CreateThread(function()
     Wait(5000) -- give the server a moment after startup
 
-    if not Config or not Config.EMDSync or not Config.EMDSync.Enabled then
-        if Config.Debug then
-            print("^3[Heartbeat]^7 EMD sync disabled in config")
-        end
-        return
-    end
-
-    if Config.EMDSync.StatusSync and Config.EMDSync.StatusSync.Enabled then
-        LoadLastStatusId()
-    end
-
-    local heartbeatInterval = Config.EMDSync.HeartbeatInterval or 5000
-
-    if Config.Debug then
-        print("^2[Heartbeat]^7 heartbeat started, base interval " .. (heartbeatInterval / 1000) .. "s, endpoint " .. PHPEndpoint)
-    end
-
-    -- first heartbeat right away (tick 0 fires every module)
-    currentTick = 0
-    PerformHeartbeat(currentTick)
+    local statusIdLoaded = false
+    local running = false
 
     while true do
-        Wait(heartbeatInterval)
-        currentTick = currentTick + 1
+        local cfg = ServerConfig.EMDSync
+        if cfg and cfg.Enabled then
+            if not running then
+                running = true
+                currentTick = 0
+                if Config.Debug then
+                    print("^2[Heartbeat]^7 heartbeat started, base interval " .. ((cfg.HeartbeatInterval or 5000) / 1000) .. "s, endpoint " .. Endpoint())
+                end
+            else
+                currentTick = currentTick + 1
+            end
 
-        if not isSyncing then
-            PerformHeartbeat(currentTick)
-        elseif Config.Debug then
-            print("^3[Heartbeat]^7 previous heartbeat still running, skipping tick " .. currentTick)
+            if not statusIdLoaded and cfg.StatusSync and cfg.StatusSync.Enabled then
+                LoadLastStatusId()
+                statusIdLoaded = true
+            end
+
+            -- tick 0 fires every module
+            if not isSyncing then
+                PerformHeartbeat(currentTick)
+            elseif Config.Debug then
+                print("^3[Heartbeat]^7 previous heartbeat still running, skipping tick " .. currentTick)
+            end
+        elseif running then
+            running = false
+            if Config.Debug then
+                print("^3[Heartbeat]^7 EMD sync switched off")
+            end
         end
+
+        Wait(math.max(1000, tonumber(cfg and cfg.HeartbeatInterval) or 5000))
     end
 end)
 
@@ -721,7 +708,7 @@ end)
 
 -- Statuses for vehicles without a dispatch go into the fallback queue
 AddEventHandler('emergencydispatch:status:emf', function(fzg, status, time)
-    if not Config.EMDSync or not Config.EMDSync.StatusSync or not Config.EMDSync.StatusSync.Enabled then
+    if not ServerConfig.EMDSync or not ServerConfig.EMDSync.StatusSync or not ServerConfig.EMDSync.StatusSync.Enabled then
         return
     end
 

@@ -14,32 +14,10 @@
 --   ...
 -- }
 
-local function ExecuteQuery(query, parameters)
-    local p = promise.new()
+local ExecuteQuery = Bridge.Query
 
-    if GetResourceState('oxmysql') == 'started' then
-        exports.oxmysql:execute(query, parameters, function(result)
-            p:resolve(result)
-        end)
-    elseif MySQL and MySQL.Async then
-        -- mysql-async fallback for older ESX setups
-        MySQL.Async.fetchAll(query, parameters, function(result)
-            p:resolve(result)
-        end)
-    else
-        if Config.Debug then
-            print("^1[eNOTF-Billing]^7 No MySQL resource found. Install oxmysql or mysql-async.")
-        end
-        p:resolve(nil)
-    end
-
-    return Citizen.Await(p)
-end
-
-local BillingEndpoint = BuildURL("api/enotf/billing.php")
-
-if Config.Debug then
-    print("^2[eNOTF-Billing]^7 endpoint: " .. (BillingEndpoint or "MISSING"))
+local function BillingEndpoint()
+    return BuildURL("api/enotf/billing.php")
 end
 
 -- Pulls the base number out of mission numbers like "123_1" -> "123"
@@ -132,29 +110,29 @@ local function FilterAlreadyProcessed(protocols)
 end
 
 function GetReleasedENOTFProtocols()
-    if not Config.ENOTFBilling or not Config.ENOTFBilling.Enabled then
+    if not ServerConfig.ENOTFBilling or not ServerConfig.ENOTFBilling.Enabled then
         return {}
     end
 
-    if not ServerConfig.APIKey or ServerConfig.APIKey == "" or ServerConfig.APIKey == "CHANGE_ME" then
-        print("^1[eNOTF-Billing]^7 API key is not set, check ServerConfig.APIKey in config_server.lua")
+    if not Bridge.IgnisKeySet() then
+        print("^1[eNOTF-Billing]^7 API key is not set, check ServerConfig.Ignis.APIKey in config_server.lua")
         return {}
     end
 
     if Config.Debug then
-        print("^2[eNOTF-Billing]^7 fetching released protocols from " .. BillingEndpoint)
+        print("^2[eNOTF-Billing]^7 fetching released protocols from " .. BillingEndpoint())
     end
 
     local p = promise.new()
 
-    PerformHttpRequest(BillingEndpoint, function(statusCode, response, headers)
+    PerformHttpRequest(BillingEndpoint(), function(statusCode, response, headers)
         if statusCode == 200 then
             local success, data = pcall(json.decode, response)
 
             if success and data then
                 local deduplicatedData = DeduplicateProtocols(data.protocols or {})
 
-                if Config.ENOTFBilling.FilterProcessed then
+                if ServerConfig.ENOTFBilling.FilterProcessed and EnsureBillingTable() then
                     deduplicatedData = FilterAlreadyProcessed(deduplicatedData)
                 end
 
@@ -175,11 +153,11 @@ function GetReleasedENOTFProtocols()
             p:resolve({})
         end
     end, 'POST', json.encode({
-        intraRP_API_Key = ServerConfig.APIKey,
+        intraRP_API_Key = Bridge.IgnisKey(),
         timestamp = os.time()
     }), {
         ['Content-Type'] = 'application/json',
-        ['User-Agent'] = 'FiveM-eNOTF-Billing/1.0'
+        ['User-Agent'] = Bridge.UserAgent
     })
 
     return Citizen.Await(p)
@@ -189,15 +167,16 @@ exports('getReleasedENOTFProtocols', GetReleasedENOTFProtocols)
 
 -- The answer carries patient names and birthdates, and every fetch marks
 -- the protocols as billed in ignis. Players need the ACE permission
--- (add_ace group.admin ignistab.billing allow). Server scripts trigger it
--- via TriggerEvent and name the player who gets the result.
+-- (add_ace group.admin ef_bridge.billing allow; the old ignistab.billing
+-- still counts). Server scripts trigger it via TriggerEvent and name the
+-- player who gets the result.
 RegisterServerEvent('enotf-billing:requestProtocols')
 AddEventHandler('enotf-billing:requestProtocols', function(target)
     local src = tonumber(source) or 0
 
     if src > 0 then
-        if not IsPlayerAceAllowed(src, 'ignistab.billing') then
-            print("^1[eNOTF-Billing]^7 requestProtocols denied for source " .. src .. " (" .. tostring(GetPlayerName(src)) .. "), missing ACE ignistab.billing")
+        if not (IsPlayerAceAllowed(src, 'ef_bridge.billing') or IsPlayerAceAllowed(src, 'ignistab.billing')) then
+            print("^1[eNOTF-Billing]^7 requestProtocols denied for source " .. src .. " (" .. tostring(GetPlayerName(src)) .. "), missing ACE ef_bridge.billing")
             return
         end
         target = src
@@ -211,12 +190,15 @@ AddEventHandler('enotf-billing:requestProtocols', function(target)
     TriggerClientEvent('enotf-billing:receiveProtocols', target, GetReleasedENOTFProtocols())
 end)
 
--- Optional background sync
-if Config.ENOTFBilling and Config.ENOTFBilling.Enabled and Config.ENOTFBilling.AutoSync then
-    CreateThread(function()
-        while true do
-            Wait(Config.ENOTFBilling.SyncInterval or 900000)
+-- Optional background sync. The thread always runs and reads the settings
+-- on every round, so the admin panel can switch it on and off.
+CreateThread(function()
+    while true do
+        local cfg = ServerConfig.ENOTFBilling
+        Wait(math.max(60000, tonumber(cfg and cfg.SyncInterval) or 900000))
 
+        cfg = ServerConfig.ENOTFBilling
+        if cfg and cfg.Enabled and cfg.AutoSync then
             local protocols = GetReleasedENOTFProtocols()
 
             if protocols and #protocols > 0 then
@@ -224,8 +206,8 @@ if Config.ENOTFBilling and Config.ENOTFBilling.Enabled and Config.ENOTFBilling.A
                 TriggerEvent('enotf-billing:autoSync', protocols)
             end
         end
-    end)
-end
+    end
+end)
 
 -- Manual sync command for admins
 RegisterCommand('enotf-billing-sync', function(source, args, rawCommand)
@@ -268,57 +250,71 @@ RegisterCommand('enotf-billing-sync', function(source, args, rawCommand)
     end
 end, true)
 
--- Creates the enotf_billing table on first start if FilterProcessed is on
-if Config.ENOTFBilling and Config.ENOTFBilling.Enabled and Config.ENOTFBilling.FilterProcessed then
-    CreateThread(function()
-        Wait(2000) -- let the DB connection come up
+-- Creates the enotf_billing table the first time FilterProcessed needs it
+-- (on start, or later when the admin panel switches billing on)
+local billingTableReady = false
 
-        local checkQuery = [[
-            SELECT COUNT(*) as count
-            FROM information_schema.TABLES
-            WHERE TABLE_NAME = 'enotf_billing'
-            AND TABLE_SCHEMA = DATABASE()
+function EnsureBillingTable()
+    if billingTableReady then
+        return true
+    end
+
+    local checkQuery = [[
+        SELECT COUNT(*) as count
+        FROM information_schema.TABLES
+        WHERE TABLE_NAME = 'enotf_billing'
+        AND TABLE_SCHEMA = DATABASE()
+    ]]
+
+    local result = ExecuteQuery(checkQuery, {})
+
+    if result and result[1] and result[1].count == 0 then
+        print("^3[eNOTF-Billing]^7 table 'enotf_billing' not found, creating it...")
+
+        local createQuery = [[
+            CREATE TABLE IF NOT EXISTS enotf_billing (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                birthdate DATE NOT NULL,
+                transport BOOLEAN NOT NULL DEFAULT 0,
+                mission_number VARCHAR(50) NOT NULL,
+                amount DECIMAL(10,2) DEFAULT 0.00,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                processed BOOLEAN DEFAULT 0,
+                processed_at TIMESTAMP NULL,
+                invoice_number VARCHAR(50) NULL,
+                notes TEXT NULL,
+                UNIQUE KEY unique_billing (name, mission_number),
+                INDEX idx_mission (mission_number),
+                INDEX idx_name (name),
+                INDEX idx_processed (processed)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         ]]
 
-        local result = ExecuteQuery(checkQuery, {})
+        local createResult = ExecuteQuery(createQuery, {})
 
-        if result and result[1] and result[1].count == 0 then
-            print("^3[eNOTF-Billing]^7 table 'enotf_billing' not found, creating it...")
-
-            local createQuery = [[
-                CREATE TABLE IF NOT EXISTS enotf_billing (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    name VARCHAR(255) NOT NULL,
-                    birthdate DATE NOT NULL,
-                    transport BOOLEAN NOT NULL DEFAULT 0,
-                    mission_number VARCHAR(50) NOT NULL,
-                    amount DECIMAL(10,2) DEFAULT 0.00,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    processed BOOLEAN DEFAULT 0,
-                    processed_at TIMESTAMP NULL,
-                    invoice_number VARCHAR(50) NULL,
-                    notes TEXT NULL,
-                    UNIQUE KEY unique_billing (name, mission_number),
-                    INDEX idx_mission (mission_number),
-                    INDEX idx_name (name),
-                    INDEX idx_processed (processed)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            ]]
-
-            local createResult = ExecuteQuery(createQuery, {})
-
-            if createResult ~= nil then
-                print("^2[eNOTF-Billing]^7 table 'enotf_billing' created")
-            else
-                print("^1[eNOTF-Billing]^7 failed to create table 'enotf_billing', please create it manually")
-            end
-        elseif result and result[1] and result[1].count > 0 then
-            if Config.Debug then
-                print("^2[eNOTF-Billing]^7 table 'enotf_billing' exists")
-            end
+        if createResult ~= nil then
+            print("^2[eNOTF-Billing]^7 table 'enotf_billing' created")
+            billingTableReady = true
         else
-            print("^1[eNOTF-Billing]^7 could not check for the billing table, is a MySQL database connected?")
+            print("^1[eNOTF-Billing]^7 failed to create table 'enotf_billing', please create it manually")
         end
+    elseif result and result[1] and result[1].count > 0 then
+        if Config.Debug then
+            print("^2[eNOTF-Billing]^7 table 'enotf_billing' exists")
+        end
+        billingTableReady = true
+    else
+        print("^1[eNOTF-Billing]^7 could not check for the billing table, is a MySQL database connected?")
+    end
+
+    return billingTableReady
+end
+
+if ServerConfig.ENOTFBilling and ServerConfig.ENOTFBilling.Enabled and ServerConfig.ENOTFBilling.FilterProcessed then
+    CreateThread(function()
+        Wait(2000) -- let the DB connection come up
+        EnsureBillingTable()
     end)
 end
 

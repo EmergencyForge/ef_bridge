@@ -28,14 +28,28 @@ function RegisterNUICallback(name, fn) nuiCallbacks[name] = fn end
 local netEvents = {}
 function RegisterServerEvent(name) netEvents[name] = true end
 function RegisterNetEvent(name) netEvents[name] = true end
-function AddEventHandler(name, fn) handlers[name] = fn end
+-- several scripts may listen to the same event (playerDropped). Loading
+-- a script again replaces its own handlers, like a resource restart.
+local listeners = {}
+function AddEventHandler(name, fn)
+    local file = debug.getinfo(2, 'S').source
+    listeners[name] = listeners[name] or {}
+    listeners[name][file] = fn
+    handlers[name] = function(...)
+        for _, f in pairs(listeners[name]) do f(...) end
+    end
+end
 function AddTextComponentString(text) notifications[#notifications + 1] = text end
 function SendNUIMessage(msg) nuiMessages[#nuiMessages + 1] = msg end
 function GetPlayerIdentifierByType(src, kind) return identifiers[src] end
 local aceAllowed = {}
 function IsPlayerAceAllowed(src, perm) return aceAllowed[src] == perm end
 function GetPlayerName(src) return "Spieler" .. src end
-function GetCurrentResourceName() return "ignisTab" end
+function GetCurrentResourceName() return "ef_bridge" end
+local kvp = {}
+function SetResourceKvp(key, value) kvp[key] = value end
+function GetResourceKvpString(key) return kvp[key] end
+function GetConvar(_, default) return default end
 function GetResourceMetadata(resource, key) return key == 'version' and '2026.2.0' or nil end
 -- framework on the server: QBCore players by source, ESX the same
 local startedResources = { ['qb-core'] = true }
@@ -82,11 +96,13 @@ print = function(...) printed[#printed + 1] = table.concat({ ... }, " ") end
 dofile(root .. "config.lua")
 dofile(root .. "config_server.lua")
 dofile(root .. "shared/url.lua")
-Config.BaseURL = "http://ignis.test/"
-ServerConfig.APIKey = "secret-key"
-Config.TabletLogin.Enabled = true
-Config.eNOTF.UseProp = false
-Config.FireTab.UseProp = false
+dofile(root .. "shared/settings.lua")
+Config.Ignis.BaseURL = "http://ignis.test/"
+ServerConfig.Ignis.APIKey = "secret-key"
+Config.Ignis.TabletLogin = true
+Config.Tablets.eNOTF.UseProp = false
+Config.Tablets.FireTab.UseProp = false
+dofile(root .. "server/core.lua")
 dofile(root .. "server/main.lua")
 dofile(root .. "server/enotf_billing.lua")
 dofile(root .. "server/billing-custom.lua")
@@ -118,7 +134,7 @@ end
 local function run(src, status, body, value, wait)
     reset(status, body, value, wait)
     source = src
-    handlers['ignisTab:requestTabletLogin']('eNOTF')
+    handlers['ef_bridge:requestTabletLogin']('eNOTF')
     return clientEvents[1]
 end
 
@@ -137,10 +153,10 @@ identifiers[1] = "discord:123456789012345678"
 local ev = run(1, 200, "ok", okBody)
 check("request goes to api/tablet/login-token", requests[1].url == "https://ignis.test/api/tablet/login-token")
 check("request carries X-API-Key", requests[1].headers['X-API-Key'] == "secret-key")
-check("User-Agent carries the manifest version", requests[1].headers['User-Agent'] == "FiveM-ignisTab/2026.2.0")
+check("User-Agent carries the manifest version", requests[1].headers['User-Agent'] == "FiveM-ef_bridge/2026.2.0")
 check("request body carries discord_id", requests[1].body == '{"discord_id":"123456789012345678"}')
 check("no API key in the body", not requests[1].body:find("secret"))
-check("link goes to the requesting source only", ev.name == 'ignisTab:tabletLogin' and ev.src == 1 and #clientEvents == 1)
+check("link goes to the requesting source only", ev.name == 'ef_bridge:tabletLogin' and ev.src == 1 and #clientEvents == 1)
 check("link is https login_url with token", ev.args[2] == "https://ignis.test/auth/tablet?token=TOKEN_abc-123")
 check("tablet type passed back", ev.args[1] == 'eNOTF')
 
@@ -152,48 +168,48 @@ check("token never printed (debug on)", #printed > 0 and not printedContains("TO
 identifiers[2] = nil
 ev = run(2, 200, "ok", okBody)
 check("no discord: no request", #requests == 0)
-check("no discord: failure to source", ev.name == 'ignisTab:tabletLoginFailed' and ev.src == 2 and ev.args[2]:find("Discord"))
+check("no discord: failure to source", ev.name == 'ef_bridge:tabletLoginFailed' and ev.src == 2 and ev.args[2]:find("Discord"))
 check("no discord: not retried", not ev.args[3])
 
 identifiers[3] = "discord:abc"
 ev = run(3, 200, "ok", okBody)
-check("malformed discord id: no request", #requests == 0 and ev.name == 'ignisTab:tabletLoginFailed')
+check("malformed discord id: no request", #requests == 0 and ev.name == 'ef_bridge:tabletLoginFailed')
 
 ev = run(1, 404, "unknown", { success = false, error = "unknown_user" })
-check("404 unknown_user message", ev.name == 'ignisTab:tabletLoginFailed' and ev.args[2]:find("kein aktives ignis%-Konto"))
+check("404 unknown_user message", ev.name == 'ef_bridge:tabletLoginFailed' and ev.args[2]:find("kein aktives ignis%-Konto"))
 check("404 unknown_user is not retried", not ev.args[3])
 ev = run(1, 404, "disabled", { success = false, error = "disabled" })
-check("404 disabled = setting off", ev.name == 'ignisTab:tabletLoginFailed' and ev.args[2]:find("nicht aktiviert"))
+check("404 disabled = setting off", ev.name == 'ef_bridge:tabletLoginFailed' and ev.args[2]:find("nicht aktiviert"))
 ev = run(1, 404, "<html>not found</html>", nil)
 check("404 without JSON (older ignis) = setting off", ev.args[2]:find("nicht aktiviert"))
 ev = run(1, 409, "ambiguous", { success = false, error = "ambiguous_user" })
-check("409 ambiguous_user message", ev.name == 'ignisTab:tabletLoginFailed' and ev.args[2]:find("mehreren ignis%-Konten"))
+check("409 ambiguous_user message", ev.name == 'ef_bridge:tabletLoginFailed' and ev.args[2]:find("mehreren ignis%-Konten"))
 check("409 is not retried", not ev.args[3])
 ev = run(1, 422, "invalid", { success = false, error = "invalid_discord_id" })
-check("422 message", ev.name == 'ignisTab:tabletLoginFailed' and ev.args[2]:find("nicht angenommen"))
+check("422 message", ev.name == 'ef_bridge:tabletLoginFailed' and ev.args[2]:find("nicht angenommen"))
 check("422 is not retried", not ev.args[3])
 ev = run(1, 429, "limit", { success = false })
 check("429 message", ev.args[2]:find("Zu viele"))
 check("429 may be retried", ev.args[3] == true)
 ev = run(1, 502, "<html>bad gateway</html>", nil)
-check("5xx may be retried", ev.name == 'ignisTab:tabletLoginFailed' and ev.args[3] == true)
+check("5xx may be retried", ev.name == 'ef_bridge:tabletLoginFailed' and ev.args[3] == true)
 ev = run(1, 403, "denied", { success = false, message = "Zugriff verweigert" })
 check("403 generic player message", ev.args[2]:find("nicht verfügbar"))
 check("403 admin hint", printedContains("API key rejected"))
 check("403 is not retried", not ev.args[3])
 ev = run(1, 0, nil, nil)
-check("network error handled", ev.name == 'ignisTab:tabletLoginFailed' and ev.args[3] == true)
+check("network error handled", ev.name == 'ef_bridge:tabletLoginFailed' and ev.args[3] == true)
 ev = run(1, 200, "notoken", { success = true })
-check("200 without token is a failure", ev.name == 'ignisTab:tabletLoginFailed')
+check("200 without token is a failure", ev.name == 'ef_bridge:tabletLoginFailed')
 
-Config.TabletLogin.Enabled = false
+Config.Ignis.TabletLogin = false
 ev = run(1, 200, "ok", okBody)
 check("disabled: nothing happens", ev == nil and #requests == 0)
-Config.TabletLogin.Enabled = true
+Config.Ignis.TabletLogin = true
 
 Config.APIKey = "secret-key"
 ev = run(1, 200, "ok", okBody)
-check("key in config.lua: no request, failure", #requests == 0 and ev.name == 'ignisTab:tabletLoginFailed')
+check("key in config.lua: no request, failure", #requests == 0 and ev.name == 'ef_bridge:tabletLoginFailed')
 Config.APIKey = nil
 
 -- a modified client firing the event in a loop
@@ -201,7 +217,7 @@ identifiers[4] = "discord:223456789012345678"
 run(4, 200, "ok", okBody)
 ev = run(4, 200, "ok", okBody, 5)
 check("cooldown: no second request to ignis within 15 s", #requests == 0)
-check("cooldown: player gets the rate limit notice", ev.name == 'ignisTab:tabletLoginFailed' and ev.args[2]:find("Zu viele"))
+check("cooldown: player gets the rate limit notice", ev.name == 'ef_bridge:tabletLoginFailed' and ev.args[2]:find("Zu viele"))
 check("cooldown may be retried", ev.args[3] == true)
 run(4, 200, "ok", okBody, 10)
 check("cooldown counts from the last request that went through", #requests == 1)
@@ -217,7 +233,7 @@ check("cooldown cleared when the player leaves", #requests == 1)
 local charData = { firstName = "Max", lastName = "Muster", job = "admin" }
 reset(403, "denied", { success = false, message = "Zugriff verweigert" })
 source = 1
-handlers['ignisTab:identifyCharacter']("sess-0123456789abcdef", charData)
+handlers['ef_bridge:identifyCharacter']("sess-0123456789abcdef", charData)
 check("identify: rejected key (403) points to config_server.lua", printedContains("config_server.lua"))
 
 -- a session ID in the log is enough to take over the ignis session
@@ -233,7 +249,7 @@ check("session ID never printed in full (debug on)", #printed > 0 and not printe
 -- name and job come from the framework, whatever the client sends
 reset(200, "ok", { success = true })
 source = 1
-handlers['ignisTab:identifyCharacter']("forged-session-0001", { firstName = "Fake", lastName = "Name", job = "police" })
+handlers['ef_bridge:identifyCharacter']("forged-session-0001", { firstName = "Fake", lastName = "Name", job = "police" })
 local body = requests[1] and requests[1].body or ""
 check("identify: name from the framework", body:find('"char_name":"Max Muster"', 1, true) ~= nil)
 check("identify: job from the framework", body:find('"char_job":"ambulance"', 1, true) ~= nil)
@@ -242,12 +258,12 @@ check("identify: QBCore citizen id is no char_id", not body:find("char_id"))
 
 reset(200, "ok", { success = true })
 source = 9
-handlers['ignisTab:identifyCharacter']("session-without-character")
+handlers['ef_bridge:identifyCharacter']("session-without-character")
 check("identify: no character on the server, no request", #requests == 0)
 
 reset(200, "ok", { success = true })
 source = 1
-handlers['ignisTab:identifyCharacter']("forged-session-0001")
+handlers['ef_bridge:identifyCharacter']("forged-session-0001")
 check("identify: a linked session is not sent again", #requests == 0)
 
 -- a modified client sending made-up session IDs in a loop
@@ -255,13 +271,13 @@ qbPlayers[8] = qbPlayer("Erika", "Muster", "ambulance", "42")
 reset(200, "ok", { success = true })
 source = 8
 for i = 1, 8 do
-    handlers['ignisTab:identifyCharacter']("loop-session-" .. i)
+    handlers['ef_bridge:identifyCharacter']("loop-session-" .. i)
 end
 check("identify: 5 requests per minute and player", #requests == 5)
 check("identify: numeric citizen id goes along as char_id", requests[1].body:find('"char_id":"42"', 1, true) ~= nil)
 reset(200, "ok", { success = true }, 61)
 source = 8
-handlers['ignisTab:identifyCharacter']("loop-session-9")
+handlers['ef_bridge:identifyCharacter']("loop-session-9")
 check("identify: next minute goes through again", #requests == 1)
 handlers['playerDropped']()
 
@@ -273,14 +289,16 @@ esxPlayers[3] = {
     get = function(key) return ({ firstName = "Erika", lastName = "Brand" })[key] end,
     getName = function() return "Steam Name" end,
 }
+dofile(root .. "server/core.lua")
 dofile(root .. "server/main.lua")
 reset(200, "ok", { success = true })
 source = 3
-handlers['ignisTab:identifyCharacter']("esx-session-0001", { firstName = "Fake" })
+handlers['ef_bridge:identifyCharacter']("esx-session-0001", { firstName = "Fake" })
 body = requests[1] and requests[1].body or ""
 check("identify (ESX): name and job from xPlayer", body:find('"char_name":"Erika Brand"', 1, true) ~= nil
     and body:find('"char_job":"fire"', 1, true) ~= nil and not body:find("char_id"))
 Config.Framework = 'auto'
+dofile(root .. "server/core.lua")
 dofile(root .. "server/main.lua")
 
 -- ===== billing =====
@@ -295,9 +313,12 @@ end
 ev = requestProtocols(5)
 check("billing: player without ACE gets nothing", ev == nil)
 check("billing: denied request is logged", printedContains("requestProtocols denied for source 5"))
-aceAllowed[6] = 'ignistab.billing'
+aceAllowed[6] = 'ef_bridge.billing'
 ev = requestProtocols(6, 99)
 check("billing: player with ACE gets the protocols himself", ev and ev.name == 'enotf-billing:receiveProtocols' and ev.src == 6 and #clientEvents == 1)
+aceAllowed[6] = 'ignistab.billing'
+ev = requestProtocols(6, 99)
+check("billing: the old ACE ignistab.billing still counts", ev and ev.src == 6)
 ev = requestProtocols('', 7)
 check("billing: server trigger sends to the named player", ev and ev.src == 7)
 ev = requestProtocols('')
@@ -309,7 +330,7 @@ check("billing: requestProtocols stays reachable for players with ACE", netEvent
 
 reset(200, "ok", okBody)
 OpenTablet('eNOTF')
-check("opening asks the server for a login link", #serverEvents == 1 and serverEvents[1].name == 'ignisTab:requestTabletLogin')
+check("opening asks the server for a login link", #serverEvents == 1 and serverEvents[1].name == 'ef_bridge:requestTabletLogin')
 check("NUI gets the tablet page first", nuiMessages[1] and nuiMessages[1].type == "openTablet")
 local login = nuiMessages[2]
 check("NUI gets the login link", login and login.type == "tabletLogin" and login.tabletType == "eNOTF"

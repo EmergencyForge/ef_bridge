@@ -18,9 +18,11 @@ function EnsureHttps(url)
     return url
 end
 
--- Joins a path onto Config.BaseURL, taking care of stray slashes.
-function BuildURL(basePath)
-    local baseURL = EnsureHttps(Config.BaseURL or "")
+-- Joins a path onto a base URL, taking care of stray slashes. Without a
+-- base it's the ignis address (Config.Ignis.BaseURL). Read on every call,
+-- so a new address from the admin panel applies right away.
+function BuildURL(basePath, base)
+    local baseURL = EnsureHttps(base or (Config.Ignis and Config.Ignis.BaseURL) or "")
 
     if baseURL ~= "" and baseURL:sub(-1) ~= "/" then
         baseURL = baseURL .. "/"
