@@ -417,3 +417,50 @@
 .efb-toast--bad {
   background: #c92a2a;
 }
+
+.efb-advanced {
+  margin-top: 14px;
+  border-top: 1px solid var(--efb-line);
+}
+
+.efb-advanced > summary {
+  padding: 12px 0 4px;
+  color: var(--efb-muted);
+  cursor: pointer;
+}
+
+.efb-import {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.efb-import__text {
+  max-width: none;
+  min-height: 160px;
+}
+
+.efb-import__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.efb-import__table th,
+.efb-import__table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--efb-line);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.efb-import__table th {
+  color: var(--efb-muted);
+  font-weight: 500;
+}
+
+.efb-import__done {
+  margin: 0;
+  color: #8ce99a;
+}

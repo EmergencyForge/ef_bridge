@@ -35,6 +35,10 @@ function GetResourceMetadata() return '2026.3.0' end
 function SetResourceKvp(key, value) kvp[key] = value end
 function GetResourceKvpString(key) return kvp[key] end
 function GetConvar(_, default) return default end
+local folder = {} -- files in the resource folder
+function LoadResourceFile(_, name) return folder[name] end
+local written = {}
+function SaveResourceFile(_, name, body) written[name] = body; return true end
 function GetPlayerIdentifierByType() return nil end
 function GetHashKey(name)
     local h = 0
@@ -134,21 +138,46 @@ local function lastEvent(name)
     end
 end
 
-local function boot()
-    dofile(root .. "config.lua")
-    dofile(root .. "config_server.lua")
+-- a server start: built-in defaults, then whatever the KVP store holds
+local function start()
+    dofile(root .. "shared/defaults.lua")
+    dofile(root .. "server/defaults.lua")
     dofile(root .. "shared/url.lua")
     dofile(root .. "shared/settings.lua")
-    Config.Ignis.BaseURL = "https://ignis.test/"
-    ServerConfig.Ignis.APIKey = "ignis-key"
-    ServerConfig.Lex.Enabled = true
-    ServerConfig.Lex.BaseURL = "https://lex.test/"
-    ServerConfig.Lex.APIKey = "lex_key"
-    for _, file in ipairs({ "core", "main", "emd_sync", "enotf_billing", "billing-custom", "lex_sync", "admin" }) do
+    for _, file in ipairs({ "core", "import", "main", "emd_sync", "enotf_billing", "billing-custom", "lex_sync", "admin" }) do
         dofile(root .. "server/" .. file .. ".lua")
     end
 end
+
+-- ===== a fresh server =====
+
+printed = {}
+start()
+check("fresh start: nothing stored, a hint how to set up", printedContains("no settings yet") and kvp['settings:overrides'] == nil)
+check("fresh start: tablets off, no addresses, no keys", Config.Tablets.eNOTF.Enabled == false and Config.Ignis.BaseURL == ''
+    and not Bridge.IgnisKeySet() and not Bridge.LexKeySet())
+
+-- set up from the console, the way a server owner does before anyone joins
+commands['efbridge'](0, { 'set', 'Ignis.BaseURL', 'https://ignis.test' })
+commands['efbridge'](0, { 'key', 'ignis', 'ignis-key' })
+commands['efbridge'](0, { 'set', 'Lex.Enabled', 'on' })
+commands['efbridge'](0, { 'set', 'Lex.BaseURL', 'https://lex.test/' })
+commands['efbridge'](0, { 'key', 'lex', 'lex_key' })
+check("console: address set with trailing slash", Config.Ignis.BaseURL == 'https://ignis.test/')
+check("console: keys set", Bridge.IgnisKey() == 'ignis-key' and Bridge.LexKeySet())
+printed = {}
+commands['efbridge'](0, { 'get', 'Lex.APIKey' })
+check("console: get never prints a key", printedContains("Lex.APIKey = set") and not printedContains("lex_key"))
+commands['efbridge'](0, { 'set', 'Lex.APIKey', 'x' })
+check("console: set refuses keys, points to key", printedContains("key ignis|lex"))
+check("log names keys, never values", not printedContains("ignis-key") and not printedContains("lex_key"))
+
+local function boot()
+    start()
+end
 boot()
+check("restart: console settings come back", Config.Ignis.BaseURL == 'https://ignis.test/' and Bridge.IgnisKey() == 'ignis-key'
+    and ServerConfig.Lex.Enabled == true)
 
 -- ===== validation =====
 
@@ -169,7 +198,10 @@ check("list rejects odd characters", V(by['Tablets.eNOTF.AllowedJobs'], { 'a b' 
 check("table name can't carry SQL", V(by['EMDSync.StatusSync.SourceTable'], 'emd_dispatchlog; DROP TABLE users') == nil)
 check("optional string may be empty", V(by['Tablets.eNOTF.OpenKey'], '') == false)
 check("required string may not be empty", V(by['Tablets.eNOTF.Command'], ' ') == nil)
-check("no API key in the schema", by['Ignis.APIKey'] == nil and by['Lex.APIKey'] == nil)
+check("keys are secrets", by['Ignis.APIKey'].type == 'secret' and by['Lex.APIKey'].type == 'secret')
+check("secret: no spaces, not empty", V(by['Lex.APIKey'], 'a b') == nil and V(by['Lex.APIKey'], '') == nil and V(by['Lex.APIKey'], ' lex_1 ') == 'lex_1')
+check("float", V(by['Tablets.eNOTF.Prop.offset.x'], '0.12') == 0.12 and V(by['Tablets.eNOTF.Prop.offset.x'], 5) == nil)
+check("optional url may be empty", V(by['Lex.BaseURL'], '') == '')
 
 -- ===== admin panel =====
 
@@ -178,7 +210,7 @@ source = 5
 handlers['ef_bridge:admin:open']()
 check("panel: no ACE, no data", lastEvent('ef_bridge:admin:data') == nil and lastEvent('ef_bridge:admin:denied').target == 5)
 handlers['ef_bridge:admin:save']({ Debug = true }, {})
-check("panel: no ACE, nothing saved", Config.Debug == false and kvp['settings:overrides'] == nil)
+check("panel: no ACE, nothing saved", Config.Debug == false)
 
 aceAllowed[6] = 'ef_bridge.admin'
 source = 6
@@ -187,11 +219,19 @@ local data = lastEvent('ef_bridge:admin:data')
 check("panel: with ACE the data goes to that player", data and data.target == 6)
 data = data and data.args[1] or {}
 check("panel: status says the keys are set", data.status and data.status.ignisKeySet and data.status.lex.keySet)
-local leaked = false
-for _, entry in ipairs(data.schema or {}) do
-    if entry.key:find('APIKey') then leaked = true end
+check("panel: keys only as set or not", data.state['Lex.APIKey'].value == true and data.state['Lex.APIKey'].default == false)
+local function deepFind(t, needle, seen)
+    seen = seen or {}
+    if seen[t] then return false end
+    seen[t] = true
+    for k, v in pairs(t) do
+        if v == needle or k == needle then return true end
+        if type(v) == 'table' and deepFind(v, needle, seen) then return true end
+    end
+    return false
 end
-check("panel: schema without API keys", #(data.schema or {}) > 20 and not leaked)
+check("panel: no key value anywhere in the data", not deepFind(data, 'lex_key') and not deepFind(data, 'ignis-key'))
+check("clients: no key in the shared settings", not deepFind(Bridge.SharedSettings(), 'ignis-key') and Bridge.SharedSettings()['Ignis.APIKey'] == nil)
 
 clientEvents = {}
 handlers['ef_bridge:admin:save']({
@@ -221,7 +261,7 @@ check("restart: changes come back from the KVP store", Config.Tablets.eNOTF.Comm
 
 source = 6
 handlers['ef_bridge:admin:save']({}, { 'Tablets.eNOTF.Command' })
-check("reset: back to the config file", Config.Tablets.eNOTF.Command == 'enotf')
+check("reset: back to the default", Config.Tablets.eNOTF.Command == 'enotf')
 boot()
 check("reset: stays reset after a restart", Config.Tablets.eNOTF.Command == 'enotf')
 
@@ -234,26 +274,108 @@ check("console: invalid value reported", printedContains("Lex.BatchSize: Erlaubt
 commands['efbridge'](0, { 'reset', 'Debug' })
 check("console: reset", Config.Debug == false)
 
--- ===== legacy config =====
+-- ===== import =====
 
-dofile(root .. "config.lua")
-dofile(root .. "config_server.lua")
-Config.Ignis, Config.Tablets = nil, nil
-Config.BaseURL = "https://old.test/"
+local oldConfig = [[
+Config = {}
+Config.Framework = 'auto'
+Config.BaseURL = 'https://old.test/ignis'
 Config.TabletLogin = { Enabled = true }
-Config.eNOTF = { Enabled = true, Command = 'enotf', AllowedJobs = { 'ambulance' } }
-Config.EMDSync = { Enabled = true, HeartbeatInterval = 5000 }
-ServerConfig.Ignis, ServerConfig.EMDSync = nil, nil
-ServerConfig.APIKey = "old-key"
-local notes = Settings.MigrateLegacy(true)
-check("legacy: base url moved", Config.Ignis.BaseURL == "https://old.test/" and Config.BaseURL == nil)
-check("legacy: tablet login moved", Config.Ignis.TabletLogin == true)
-check("legacy: tablet moved and gets its page", Config.Tablets.eNOTF.Command == 'enotf' and Config.Tablets.eNOTF.Path == 'enotf/overview.php')
-check("legacy: missing FireTab is off", Config.Tablets.FireTab.Enabled == false)
-check("legacy: EMD sync moved to the server", ServerConfig.EMDSync.Enabled == true and Config.EMDSync == nil)
-check("legacy: key moved", ServerConfig.Ignis.APIKey == "old-key")
-check("legacy: every move is reported", #notes >= 5)
-boot()
+Config.eNOTF = { Enabled = true, Command = 'notarzt', OpenKey = 'F10', AllowedJobs = { 'ambulance', 'doj' }, RequireItem = false, RequiredItem = 'tablet', UseProp = true,
+    Prop = { model = 'notfpad', bone = 18905, offset = { x = 0.2, y = 0.0550, z = 0.1550, xRot = -76.0, yRot = -186.0, zRot = 58.3 } } }
+Config.FireTab = { Enabled = false, Command = 'firetab' }
+Config.EMDSync = { Enabled = true, HeartbeatInterval = 7000, StatusSync = { Enabled = true, SourceTable = 'emd_dispatchlog; DROP TABLE users' } }
+]]
+local oldServer = [[
+ServerConfig = {}
+ServerConfig.APIKey = 'old-key'
+]]
+
+-- preview from the panel: nothing changes yet
+clientEvents = {}
+source = 6
+handlers['ef_bridge:admin:import'](oldConfig .. '\n' .. oldServer, false)
+local imp = lastEvent('ef_bridge:admin:imported').args[1]
+local planned = {}
+for _, item in ipairs(imp.preview) do planned[item.key] = item end
+check("import preview: old layout understood", planned['Ignis.BaseURL'] and planned['Ignis.BaseURL'].to == 'https://old.test/ignis/'
+    and planned['Tablets.eNOTF.Command'] and planned['Tablets.eNOTF.Prop.offset.x'] and planned['EMDSync.HeartbeatInterval'])
+check("import preview: nothing applied yet", Config.Tablets.eNOTF.Command == 'enotf' and #imp.applied == 0)
+check("import preview: a key shows as new key, not its value", planned['Ignis.APIKey'] and planned['Ignis.APIKey'].to == 'neuer Schlüssel'
+    and not deepFind(imp, 'old-key'))
+local badTable = false
+for _, e in ipairs(imp.errors) do if e.key == 'EMDSync.StatusSync.SourceTable' then badTable = true end end
+check("import preview: invalid values are listed, not taken", badTable and not planned['EMDSync.StatusSync.SourceTable'])
+check("import preview: old places are reported", #imp.notes >= 4)
+check("import: unchanged values are no change", planned['Tablets.eNOTF.Prop.offset.y'] == nil and planned['Framework'] == nil)
+
+handlers['ef_bridge:admin:import'](oldConfig .. '\n' .. oldServer, true)
+imp = lastEvent('ef_bridge:admin:imported').args[1]
+check("import apply: settings taken over", Config.Tablets.eNOTF.Command == 'notarzt' and Config.Tablets.eNOTF.Prop.offset.x == 0.2
+    and Config.Tablets.eNOTF.AllowedJobs[2] == 'doj' and ServerConfig.EMDSync.HeartbeatInterval == 7000 and Bridge.IgnisKey() == 'old-key')
+check("import apply: SQL in the table name refused", ServerConfig.EMDSync.StatusSync.SourceTable == 'emd_dispatchlog')
+check("import apply: restart flagged for the command", imp.restart == true)
+
+source = 5
+clientEvents = {}
+handlers['ef_bridge:admin:import'](oldConfig, true)
+check("import: needs the ACE", lastEvent('ef_bridge:admin:imported') == nil and lastEvent('ef_bridge:admin:denied'))
+
+-- a config file is data, not a script
+clientEvents = {}
+source = 6
+handlers['ef_bridge:admin:import']("Config = {} os.exit(1)", false)
+imp = lastEvent('ef_bridge:admin:imported').args[1]
+check("sandbox: no os, no natives", #imp.problems == 1 and imp.problems[1]:find('os'))
+handlers['ef_bridge:admin:import']("while true do end", false)
+imp = lastEvent('ef_bridge:admin:imported').args[1]
+check("sandbox: an endless loop is stopped", #imp.problems == 1 and imp.problems[1]:find('Schritte'))
+handlers['ef_bridge:admin:import']("Config = { Debug = ", false)
+imp = lastEvent('ef_bridge:admin:imported').args[1]
+check("sandbox: syntax errors are reported", #imp.problems == 1 and imp.problems[1]:find('lässt sich nicht lesen'))
+handlers['ef_bridge:admin:import'](string.dump(function() end), false)
+imp = lastEvent('ef_bridge:admin:imported').args[1]
+check("sandbox: no bytecode", #imp.problems == 1)
+
+-- export and back
+commands['efbridge'](0, { 'export' })
+local export = store[written['settings-export.json']]
+check("export: changed settings without keys", export and export.format == 'ef_bridge-settings'
+    and export.settings['Tablets.eNOTF.Command'] == 'notarzt' and export.settings['Ignis.APIKey'] == nil and export.settings['Lex.APIKey'] == nil)
+handlers['ef_bridge:admin:save']({ ['Tablets.eNOTF.Command'] = 'enotf2' }, {})
+clientEvents = {}
+-- the json stub hands out tokens, a real export starts with {
+store['{"format":"ef_bridge-settings"}'] = export
+handlers['ef_bridge:admin:import']('{"format":"ef_bridge-settings"}', true)
+check("export comes back in", Config.Tablets.eNOTF.Command == 'notarzt')
+
+-- first start of a server with old files in the folder
+kvp = {}
+folder['config.lua'] = oldConfig
+folder['config_server.lua'] = oldServer
+printed = {}
+start()
+check("first start: old files imported once", Config.Tablets.eNOTF.Command == 'notarzt' and Bridge.IgnisKey() == 'old-key'
+    and kvp['settings:overrides'] ~= nil and printedContains("no longer reads these files"))
+handlers['ef_bridge:admin:save']({ ['Tablets.eNOTF.Command'] = 'rd' }, {})
+printed = {}
+start()
+check("later starts: files are not read again", Config.Tablets.eNOTF.Command == 'rd' and printedContains("no longer read"))
+commands['efbridge'](0, { 'import' })
+check("console import takes them over again", Config.Tablets.eNOTF.Command == 'notarzt')
+folder = {}
+
+-- back to the setup the sync tests expect
+kvp = {}
+start()
+commands['efbridge'](0, { 'set', 'Ignis.BaseURL', 'https://ignis.test/' })
+commands['efbridge'](0, { 'key', 'ignis', 'ignis-key' })
+commands['efbridge'](0, { 'set', 'Lex.Enabled', 'on' })
+commands['efbridge'](0, { 'set', 'Lex.BaseURL', 'https://lex.test/' })
+commands['efbridge'](0, { 'key', 'lex', 'lex_key' })
+commands['efbridge'](0, { 'key', 'lex', 'clear' })
+check("console: key clear", not Bridge.LexKeySet())
+commands['efbridge'](0, { 'key', 'lex', 'lex_key' })
 
 -- ===== Lex full sync =====
 
@@ -302,9 +424,9 @@ ServerConfig.Lex.FullSync.RetireMissingVehicles = true
 lex.persons = function() return 401, { success = false, error = 'invalid_key', message = 'Der Schlüssel passt nicht.' } end
 requests = {}
 ok, summary = LexSync.FullSync('test')
-check("rejected key: sync fails with a hint", ok == false and summary:find('ServerConfig.Lex.APIKey', 1, true))
+check("rejected key: sync fails with a hint", ok == false and summary:find('Schlüssel aus Lex', 1, true))
 check("rejected key: no finish", not requests[#requests].url:find('finish'))
-check("rejected key: shown in the status", LexSync.Status().lastError.message:find('ServerConfig.Lex.APIKey', 1, true) ~= nil)
+check("rejected key: shown in the status", LexSync.Status().lastError.message:find('Schlüssel aus Lex', 1, true) ~= nil)
 lex.persons = function(body) return 200, { success = true, created = #body.persons, skipped = {} } end
 
 ServerConfig.Lex.Enabled = false

@@ -3,13 +3,18 @@
 -- event: a client can fire any event, the panel being closed is no
 -- protection.
 --
--- Console (txAdmin, server terminal):
---   efbridge status             what runs, which keys are set
---   efbridge get <key>          one setting
---   efbridge set <key> <value>  change a setting (lists: comma separated)
---   efbridge reset <key>        back to the value from the config file
---   efbridge lexsync            full sync with Lex now
---   efbridge test               check the connection to ignis and Lex
+-- Console (txAdmin, server terminal), the way to set up a server before
+-- anyone can join:
+--   efbridge status                   what runs, which keys are set
+--   efbridge list [group]             every setting with its value
+--   efbridge get <setting>            one setting
+--   efbridge set <setting> <value>    change it (lists: comma separated)
+--   efbridge reset <setting>          back to the default
+--   efbridge key <ignis|lex> <key>    set an API key, `clear` removes it
+--   efbridge import                   take over config files from the folder
+--   efbridge export                   changed settings to settings-export.json
+--   efbridge lexsync                  full sync with Lex now
+--   efbridge test                     check the connection to ignis and Lex
 
 local function Status()
     local _, frameworkName = Bridge.Framework()
@@ -34,14 +39,18 @@ local function SchemaForPanel()
             label = entry.label, help = entry.help or false, options = entry.options or false,
             min = entry.min or false, max = entry.max or false,
             restart = entry.restart == true, optional = entry.optional == true,
+            advanced = entry.advanced == true,
         }
     end
     return list
 end
 
 local function TestIgnis()
+    if (Config.Ignis.BaseURL or '') == '' then
+        return false, 'Die Adresse von ignis fehlt.'
+    end
     if not Bridge.IgnisKeySet() then
-        return false, 'ServerConfig.Ignis.APIKey in config_server.lua fehlt.'
+        return false, 'Der API-Schlüssel von ignis fehlt.'
     end
     -- identify without a session: ignis checks the key first (403 when
     -- wrong, 503 when ignis has none) and then rejects the empty body with
@@ -50,7 +59,7 @@ local function TestIgnis()
     if status == 0 then
         return false, 'ignis ist nicht erreichbar (' .. BuildURL('') .. ').'
     elseif status == 403 or status == 401 then
-        return false, 'ignis lehnt den Schlüssel ab, prüf ServerConfig.Ignis.APIKey.'
+        return false, 'ignis lehnt den Schlüssel ab. Trag im Panel unter ignis den Schlüssel aus ignis ein.'
     elseif status == 503 then
         return false, 'In ignis ist noch kein API-Schlüssel gesetzt.'
     elseif status == 404 then
@@ -113,6 +122,47 @@ AddEventHandler('ef_bridge:admin:save', function(changes, resets)
     })
 end)
 
+-- Import from the panel: the pasted text (or the files in the folder when
+-- empty). apply = false only answers with the preview. Latent event: a
+-- config file is bigger than a normal event should be.
+RegisterNetEvent('ef_bridge:admin:import')
+AddEventHandler('ef_bridge:admin:import', function(text, apply)
+    local src = source
+    if not Bridge.IsAdmin(src) then
+        return Deny(src)
+    end
+
+    local sources
+    if type(text) == 'string' and text:match('%S') then
+        sources = { { name = 'eingefügt', code = text } }
+    else
+        sources = Import.FolderSources()
+    end
+
+    local plan = Import.Plan(sources)
+    local applied, restart = {}, false
+    if apply == true then
+        applied, restart = Import.Apply(plan, tostring(GetPlayerName(src)) .. ' (' .. src .. ') import')
+    end
+
+    local errors = {}
+    for key, message in pairs(plan.errors) do
+        errors[#errors + 1] = { key = key, label = Settings.ByKey[key] and Settings.ByKey[key].label or key, message = message }
+    end
+
+    TriggerClientEvent('ef_bridge:admin:imported', src, {
+        found = #sources,
+        preview = plan.preview,
+        errors = errors,
+        notes = plan.notes,
+        problems = plan.problems,
+        applied = applied,
+        restart = restart,
+        state = Bridge.SettingsState(),
+        status = Status(),
+    })
+end)
+
 RegisterNetEvent('ef_bridge:admin:action')
 AddEventHandler('ef_bridge:admin:action', function(name)
     local src = source
@@ -131,7 +181,10 @@ end)
 -- CONSOLE
 -- ========================================
 
-local function Show(value)
+local function Show(value, entry)
+    if entry and entry.type == 'secret' then
+        return value and 'set' or 'not set'
+    end
     if type(value) == 'table' then
         return table.concat(value, ', ')
     end
@@ -182,25 +235,57 @@ RegisterCommand(Config.Admin.Command, function(src, args)
         end
     elseif sub == 'get' and args[2] then
         local entry = Settings.ByKey[args[2]]
-        Reply(src, entry and (args[2] .. ' = ' .. Show(Settings.Read(entry))) or ('unknown setting ' .. args[2]))
+        Reply(src, entry and (args[2] .. ' = ' .. Show(Settings.Read(entry), entry)) or ('unknown setting ' .. args[2]))
     elseif sub == 'set' and args[2] then
         local entry = Settings.ByKey[args[2]]
         if not entry then
             return Reply(src, 'unknown setting ' .. args[2])
+        end
+        if entry.type == 'secret' then
+            return Reply(src, 'API keys: ' .. Config.Admin.Command .. ' key ignis|lex <key>')
         end
         local raw = table.concat(args, ' ', 3)
         local _, errors, restart = Bridge.ApplySettings({ [args[2]] = Parse(entry, raw) }, nil, 'console')
         if errors[args[2]] then
             Reply(src, args[2] .. ': ' .. errors[args[2]])
         else
-            Reply(src, args[2] .. ' = ' .. Show(Settings.Read(entry)) .. (restart and ' (takes effect after restart ' .. Bridge.Resource .. ')' or ''))
+            Reply(src, args[2] .. ' = ' .. Show(Settings.Read(entry), entry) .. (restart and ' (takes effect after restart ' .. Bridge.Resource .. ')' or ''))
         end
     elseif sub == 'reset' and args[2] then
         if not Settings.ByKey[args[2]] then
             return Reply(src, 'unknown setting ' .. args[2])
         end
         Bridge.ApplySettings(nil, { args[2] }, 'console')
-        Reply(src, args[2] .. ' = ' .. Show(Settings.Read(Settings.ByKey[args[2]])))
+        Reply(src, args[2] .. ' = ' .. Show(Settings.Read(Settings.ByKey[args[2]]), Settings.ByKey[args[2]]))
+    elseif sub == 'list' then
+        local group = args[2] and table.concat(args, ' ', 2):lower()
+        for _, entry in ipairs(Settings.Schema) do
+            if not group or entry.group:lower() == group then
+                Reply(src, ('%-40s %s'):format(entry.key, Show(Settings.Read(entry), entry)))
+            end
+        end
+    elseif sub == 'key' and (args[2] == 'ignis' or args[2] == 'lex') and args[3] then
+        local key = args[2] == 'ignis' and 'Ignis.APIKey' or 'Lex.APIKey'
+        if args[3] == 'clear' then
+            Bridge.ApplySettings(nil, { key }, 'console')
+            return Reply(src, args[2] .. ' API key removed')
+        end
+        local _, errors = Bridge.ApplySettings({ [key] = args[3] }, nil, 'console')
+        Reply(src, errors[key] and (args[2] .. ': ' .. errors[key]) or (args[2] .. ' API key set'))
+    elseif sub == 'import' then
+        local sources = Import.FolderSources()
+        if #sources == 0 then
+            return Reply(src, 'no config.lua, config_server.lua or settings-export.json in the resource folder')
+        end
+        local plan = Import.Plan(sources)
+        local applied, restart = Import.Apply(plan, 'console import')
+        Import.Report(plan, applied)
+        if restart then
+            Reply(src, 'some of it takes effect after restart ' .. Bridge.Resource)
+        end
+    elseif sub == 'export' then
+        local ok, name = Import.Export()
+        Reply(src, ok and ('changed settings written to ' .. name .. ' (without API keys)') or 'export failed')
     elseif sub == 'lexsync' then
         local started = LexSync.StartFullSync('console')
         Reply(src, started and 'Lex full sync started' or 'a Lex sync is already running')
@@ -212,6 +297,6 @@ RegisterCommand(Config.Admin.Command, function(src, args)
             Reply(src, 'Lex: ' .. (okL and 'ok' or 'FAILED') .. ' - ' .. msgL)
         end)
     else
-        Reply(src, 'usage: ' .. Config.Admin.Command .. ' status | get <key> | set <key> <value> | reset <key> | lexsync | test')
+        Reply(src, 'usage: ' .. Config.Admin.Command .. ' status | list [group] | get <setting> | set <setting> <value> | reset <setting> | key <ignis|lex> <key|clear> | import | export | lexsync | test')
     end
 end, true)

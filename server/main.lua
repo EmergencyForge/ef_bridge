@@ -70,7 +70,7 @@ AddEventHandler('ef_bridge:identifyCharacter', function(sessionId)
             state.linked = sessionId
             Bridge.Debug("identifyCharacter: OK (200)")
         elseif statusCode == 401 or statusCode == 403 then
-            Bridge.Warn("identifyCharacter: API key rejected (" .. statusCode .. "), check ServerConfig.Ignis.APIKey in config_server.lua")
+            Bridge.Warn("identifyCharacter: API key rejected (" .. statusCode .. "), check the ignis API key (/efbridge or `efbridge key ignis <key>`)")
         else
             Bridge.Warn("identifyCharacter: error " .. tostring(statusCode) .. " - " .. tostring(response))
         end
@@ -121,13 +121,6 @@ AddEventHandler('ef_bridge:requestTabletLogin', function(tabletType)
     end
     lastTabletLogin[src] = now
 
-    -- With a public key anyone could fetch login links for any Discord ID
-    if Config.APIKey then
-        Bridge.Warn("tablet login: disabled while Config.APIKey is still in config.lua")
-        TabletLoginFailed(src, tabletType, TabletLoginUnavailable)
-        return
-    end
-
     -- "discord:<id>", verified by FiveM when Discord is a required identifier
     local discordId = (GetPlayerIdentifierByType(src, 'discord') or ''):match('^discord:(%d+)$')
     if not discordId then
@@ -157,7 +150,7 @@ AddEventHandler('ef_bridge:requestTabletLogin', function(tabletType)
             TabletLoginFailed(src, tabletType, TabletLoginTooMany, true)
         else
             if statusCode == 403 then
-                Bridge.Warn("tablet login: API key rejected, check ServerConfig.Ignis.APIKey in config_server.lua")
+                Bridge.Warn("tablet login: API key rejected, check the ignis API key (/efbridge or `efbridge key ignis <key>`)")
             else
                 Bridge.Warn("tablet login: ignis answered " .. tostring(statusCode))
             end

@@ -24,18 +24,8 @@ function Bridge.Debug(message)
 end
 
 -- ========================================
--- CONFIG FILES
+-- API KEYS
 -- ========================================
-
-for _, note in ipairs(Settings.MigrateLegacy(true)) do
-    Bridge.Warn('old config layout: ' .. note .. '. Please move it, see INSTALL.md.')
-end
-
--- Older versions kept the API key in config.lua, which every player
--- downloads. A key still sitting there is public.
-if Config.APIKey then
-    Bridge.Warn('Config.APIKey in config.lua is readable by every player. Move it to ServerConfig.Ignis.APIKey in config_server.lua, delete it from config.lua and create a new key in ignis.')
-end
 
 local function KeySet(key)
     return type(key) == 'string' and key ~= '' and key ~= 'CHANGE_ME'
@@ -51,18 +41,6 @@ end
 
 function Bridge.LexKeySet()
     return KeySet(ServerConfig.Lex and ServerConfig.Lex.APIKey)
-end
-
--- An update brings a fresh config_server.lua; without the key ignis
--- rejects every request
--- A server that only uses Lex keeps the placeholder address and gets no
--- warning about ignis
-local usesIgnis = Config.Ignis.BaseURL ~= '' and not Config.Ignis.BaseURL:find('deine-ignis-url', 1, true)
-if usesIgnis and not Bridge.IgnisKeySet() then
-    Bridge.Warn('ServerConfig.Ignis.APIKey in config_server.lua is not set, ignis will reject every request.')
-end
-if ServerConfig.Lex.Enabled and not Bridge.LexKeySet() then
-    Bridge.Warn('ServerConfig.Lex.APIKey in config_server.lua is not set, Lex will reject every request.')
 end
 
 -- ========================================
@@ -202,14 +180,16 @@ function Bridge.Request(url, method, body, headers)
 end
 
 -- ========================================
--- RUNTIME SETTINGS
+-- SETTINGS
 -- ========================================
--- The config files give the defaults, the admin panel lays its changes
--- over them. Changes live in the server's resource KVP store, so they
--- survive a restart and an update that replaces the resource folder.
+-- The defaults come from shared/defaults.lua and server/defaults.lua, the
+-- admin panel, the console and imports lay their changes over them. Changes
+-- live in the server's resource KVP store, so they survive a restart and
+-- an update that replaces the resource folder. API keys are stored there
+-- too; KVP never leaves the server.
 
 local OverridesKvp = 'settings:overrides'
-local fileValues = {}
+local defaults = {}
 local overrides = {}
 
 local function Copy(value)
@@ -222,13 +202,26 @@ local function Copy(value)
     end
     return copy
 end
+Bridge.Copy = Copy
 
 for _, entry in ipairs(Settings.Schema) do
-    fileValues[entry.key] = Copy(Settings.Read(entry))
+    defaults[entry.key] = Copy(Settings.Raw(entry))
 end
 
 local function SaveOverrides()
     SetResourceKvp(OverridesKvp, json.encode(overrides))
+end
+
+-- true once anything was ever saved; a fresh server may import old files
+Bridge.HasStoredSettings = GetResourceKvpString(OverridesKvp) ~= nil
+
+-- after an automatic import that changed nothing: don't import again on
+-- every start
+function Bridge.MarkSettingsStored()
+    if not Bridge.HasStoredSettings then
+        SaveOverrides()
+        Bridge.HasStoredSettings = true
+    end
 end
 
 do
@@ -257,22 +250,30 @@ function Bridge.SharedSettings()
     return values
 end
 
--- What the panel shows per entry
+-- What the panel shows per entry. Secrets come as "set or not", their
+-- default as false.
 function Bridge.SettingsState()
     local state = {}
     for _, entry in ipairs(Settings.Schema) do
+        local default = defaults[entry.key]
+        if entry.type == 'secret' then
+            default = false
+        elseif default == nil then
+            default = false
+        end
         state[entry.key] = {
             value = Settings.Read(entry),
-            default = fileValues[entry.key] == nil and false or fileValues[entry.key],
+            default = default,
             changed = overrides[entry.key] ~= nil
         }
     end
     return state
 end
 
--- Applies changes from the panel. `changes` maps keys to new values,
--- `resets` lists keys that go back to the config file. Returns the
--- applied keys, the errors per key and whether a restart is needed.
+-- Applies changes. `changes` maps keys to new values, `resets` lists keys
+-- that go back to the default (for a key: cleared). Returns the applied
+-- keys, the errors per key and whether a restart is needed. The log names
+-- the keys, never a value.
 function Bridge.ApplySettings(changes, resets, actor)
     local applied, errors, restart = {}, {}, false
 
@@ -292,7 +293,7 @@ function Bridge.ApplySettings(changes, resets, actor)
     for _, key in ipairs(type(resets) == 'table' and resets or {}) do
         local entry = Settings.ByKey[key]
         if entry then
-            local value = Copy(fileValues[key])
+            local value = Copy(defaults[key])
             apply(entry, value == nil and false or value, true)
         end
     end
@@ -313,6 +314,7 @@ function Bridge.ApplySettings(changes, resets, actor)
 
     if #applied > 0 then
         SaveOverrides()
+        Bridge.HasStoredSettings = true
         TriggerClientEvent('ef_bridge:settings', -1, Bridge.SharedSettings())
         table.sort(applied)
         Bridge.Print(('%s changed %s'):format(actor or 'console', table.concat(applied, ', ')))

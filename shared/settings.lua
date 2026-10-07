@@ -1,14 +1,14 @@
--- Settings that can be changed ingame (admin panel, /efbridge), shared
--- between client and server.
+-- Every setting of ef_bridge, shared between client and server. There are
+-- no config files: the defaults live in shared/defaults.lua and
+-- server/defaults.lua, changes come from the admin panel (/efbridge), the
+-- console command efbridge or an import of an old config file.
 --
 -- Every entry names a path below Config (scope 'shared', the clients get
 -- it too) or below ServerConfig (scope 'server', never leaves the
--- server). The server keeps the values from the config files, lays the
--- ingame changes over them and sends the shared ones to every client.
--- Entries with restart = true take effect after `restart ef_bridge`,
--- everything else applies right away. API keys are not in here on purpose:
--- they stay in config_server.lua and the panel only shows whether they are
--- set.
+-- server). Entries with restart = true take effect after
+-- `restart ef_bridge`, everything else applies right away.
+-- type = 'secret' (the API keys) can be set and cleared, but no value is
+-- ever sent back, not even to admins.
 
 Settings = {}
 
@@ -24,6 +24,14 @@ local function tablet(name, label)
         { key = base .. 'Path', scope = 'shared', type = 'string', group = group, label = 'Seite in ignis', help = 'Pfad hinter der ignis-Adresse.', pattern = '^[%w_%-%./%?=&]*$', max = 120 },
         { key = base .. 'Command', scope = 'shared', type = 'string', group = group, label = 'Chatbefehl', pattern = '^[%w_%-]+$', max = 32, restart = true },
         { key = base .. 'OpenKey', scope = 'shared', type = 'string', group = group, label = 'Standardtaste', help = 'Zum Beispiel F9. Leer: keine Taste vorbelegt. Spieler können sie selbst ändern.', pattern = '^[%w_]*$', max = 20, optional = true, restart = true },
+        { key = base .. 'Prop.model', scope = 'shared', type = 'string', group = group, label = 'Modell in der Hand', pattern = '^[%w_%-]+$', max = 60, advanced = true },
+        { key = base .. 'Prop.bone', scope = 'shared', type = 'number', group = group, label = 'Knochen (Bone-ID)', min = 0, max = 65535, advanced = true },
+        { key = base .. 'Prop.offset.x', scope = 'shared', type = 'float', group = group, label = 'Versatz X', min = -2, max = 2, advanced = true },
+        { key = base .. 'Prop.offset.y', scope = 'shared', type = 'float', group = group, label = 'Versatz Y', min = -2, max = 2, advanced = true },
+        { key = base .. 'Prop.offset.z', scope = 'shared', type = 'float', group = group, label = 'Versatz Z', min = -2, max = 2, advanced = true },
+        { key = base .. 'Prop.offset.xRot', scope = 'shared', type = 'float', group = group, label = 'Drehung X', min = -360, max = 360, advanced = true },
+        { key = base .. 'Prop.offset.yRot', scope = 'shared', type = 'float', group = group, label = 'Drehung Y', min = -360, max = 360, advanced = true },
+        { key = base .. 'Prop.offset.zRot', scope = 'shared', type = 'float', group = group, label = 'Drehung Z', min = -360, max = 360, advanced = true },
     }
 end
 
@@ -39,7 +47,12 @@ add({
     { key = 'Debug', scope = 'shared', type = 'boolean', group = 'Allgemein', label = 'Ausführliche Meldungen in der Konsole' },
     { key = 'Framework', scope = 'shared', type = 'select', group = 'Allgemein', label = 'Framework', options = { 'auto', 'qbcore', 'esx' }, restart = true },
 
-    { key = 'Ignis.BaseURL', scope = 'shared', type = 'url', group = 'ignis', label = 'Adresse von ignis', help = 'Mit https:// und / am Ende.' },
+    { key = 'Animation.dict', scope = 'shared', type = 'string', group = 'Allgemein', label = 'Animation: Dictionary', pattern = '^[%w_@%-%.]+$', max = 120, advanced = true },
+    { key = 'Animation.anim', scope = 'shared', type = 'string', group = 'Allgemein', label = 'Animation: Name', pattern = '^[%w_%-%.]+$', max = 60, advanced = true },
+    { key = 'Animation.flag', scope = 'shared', type = 'number', group = 'Allgemein', label = 'Animation: Flag', min = 0, max = 65535, advanced = true },
+
+    { key = 'Ignis.BaseURL', scope = 'shared', type = 'url', group = 'ignis', label = 'Adresse von ignis', help = 'Mit https:// und / am Ende. Leer: ignis wird nicht genutzt.', optional = true },
+    { key = 'Ignis.APIKey', scope = 'server', type = 'secret', group = 'ignis', label = 'API-Schlüssel', help = 'In ignis unter Einstellungen › System-Konfiguration › Technik.' },
     { key = 'Ignis.TabletLogin', scope = 'shared', type = 'boolean', group = 'ignis', label = 'Tablet-Login über Discord-ID', help = 'In ignis muss „Anmeldung über ef_bridge“ eingeschaltet sein.' },
 })
 add(tablet('eNOTF', 'eNOTF-Tablet'))
@@ -62,7 +75,8 @@ add({
     { key = 'ENOTFBilling.FilterProcessed', scope = 'server', type = 'boolean', group = 'eNOTF-Abrechnung', label = 'Schon abgerechnete Protokolle überspringen' },
 
     { key = 'Lex.Enabled', scope = 'server', type = 'boolean', group = 'Lex', label = 'Abgleich mit Lex aktiv', help = 'In Lex unter Einstellungen › FiveM-Abgleich einschalten und den Schlüssel erzeugen.' },
-    { key = 'Lex.BaseURL', scope = 'server', type = 'url', group = 'Lex', label = 'Adresse von Lex', help = 'Mit https:// und / am Ende.' },
+    { key = 'Lex.BaseURL', scope = 'server', type = 'url', group = 'Lex', label = 'Adresse von Lex', help = 'Mit https:// und / am Ende. Lex zeigt sie unter Einstellungen › FiveM-Abgleich.', optional = true },
+    { key = 'Lex.APIKey', scope = 'server', type = 'secret', group = 'Lex', label = 'API-Schlüssel', help = 'Lex zeigt ihn einmal beim Erzeugen unter Einstellungen › FiveM-Abgleich.' },
     { key = 'Lex.Persons', scope = 'server', type = 'boolean', group = 'Lex', label = 'Charaktere als Personen' },
     { key = 'Lex.Vehicles', scope = 'server', type = 'boolean', group = 'Lex', label = 'Fahrzeuge mit Halter' },
     { key = 'Lex.SyncOnLogin', scope = 'server', type = 'boolean', group = 'Lex', label = 'Beim Einloggen sofort abgleichen' },
@@ -132,6 +146,31 @@ function Settings.Validate(entry, value)
         return math.tointeger(n) or n
     end
 
+    if t == 'float' then
+        local n = tonumber(value)
+        if not n or n ~= n or n == math.huge or n == -math.huge then
+            return nil, 'Erwartet: eine Zahl.'
+        end
+        if (entry.min and n < entry.min) or (entry.max and n > entry.max) then
+            return nil, ('Erlaubt: %s bis %s.'):format(entry.min, entry.max)
+        end
+        return n + 0.0
+    end
+
+    if t == 'secret' then
+        if type(value) ~= 'string' then
+            return nil, 'Erwartet: Text.'
+        end
+        value = value:match('^%s*(.-)%s*$')
+        if value == '' then
+            return nil, 'Darf nicht leer sein. Zum Löschen „Schlüssel löschen“ nehmen.'
+        end
+        if #value > 200 or value:find('[%s%c]') then
+            return nil, 'Ein Schlüssel hat keine Leerzeichen und höchstens 200 Zeichen.'
+        end
+        return value
+    end
+
     if t == 'select' then
         for _, option in ipairs(entry.options) do
             if value == option then
@@ -171,7 +210,9 @@ function Settings.Validate(entry, value)
         value = value:match('^%s*(.-)%s*$')
         if value == '' then
             if entry.optional then
-                return false
+                -- an empty address means "not used", a string keeps
+                -- BuildURL from falling back to another base
+                return t == 'url' and '' or false
             end
             return nil, 'Darf nicht leer sein.'
         end
@@ -199,10 +240,20 @@ end
 function Settings.Read(entry)
     local root = entry.scope == 'server' and ServerConfig or Config
     local value = root and Settings.Get(root, entry.key)
+    if entry.type == 'secret' then
+        -- only whether it is set; the key itself stays where it is
+        return type(value) == 'string' and value ~= '' and value ~= 'CHANGE_ME'
+    end
     if value == nil and entry.optional then
         return false
     end
     return value
+end
+
+-- The stored value itself, secrets included. Server only.
+function Settings.Raw(entry)
+    local root = entry.scope == 'server' and ServerConfig or Config
+    return root and Settings.Get(root, entry.key)
 end
 
 function Settings.Write(entry, value)
@@ -213,64 +264,46 @@ function Settings.Write(entry, value)
     Settings.Set(root, entry.key, value)
 end
 
--- Older ignisTab config files keep working: their keys are moved to the
--- new places. Returns the notes for the console. Runs on the server after
--- config_server.lua and on the client after config.lua.
-function Settings.MigrateLegacy(isServer)
+-- Moves the keys of older config files (ignisTab and the first ef_bridge
+-- layout) to their current places. Works on the tables an imported file
+-- filled, never on the live Config. Returns notes for the console.
+function Settings.MigrateLegacy(cfg, srv)
     local notes = {}
+    cfg.Ignis = type(cfg.Ignis) == 'table' and cfg.Ignis or {}
+    srv.Ignis = type(srv.Ignis) == 'table' and srv.Ignis or {}
 
-    Config.Ignis = Config.Ignis or {}
-    if Config.BaseURL then
-        Config.Ignis.BaseURL = Config.BaseURL
-        notes[#notes + 1] = 'Config.BaseURL -> Config.Ignis.BaseURL'
+    if cfg.BaseURL then
+        cfg.Ignis.BaseURL = cfg.BaseURL
+        notes[#notes + 1] = 'Config.BaseURL -> Ignis.BaseURL'
     end
-    if type(Config.TabletLogin) == 'table' then
-        Config.Ignis.TabletLogin = Config.TabletLogin.Enabled == true
-        notes[#notes + 1] = 'Config.TabletLogin.Enabled -> Config.Ignis.TabletLogin'
+    if type(cfg.TabletLogin) == 'table' then
+        cfg.Ignis.TabletLogin = cfg.TabletLogin.Enabled == true
+        notes[#notes + 1] = 'Config.TabletLogin.Enabled -> Ignis.TabletLogin'
     end
-    Config.Ignis.BaseURL = Config.Ignis.BaseURL or ''
-    Config.Ignis.TabletLogin = Config.Ignis.TabletLogin == true
 
-    Config.Tablets = Config.Tablets or {}
-    for name, path in pairs({ eNOTF = 'enotf/overview.php', FireTab = 'einsatz/list.php' }) do
-        if type(Config[name]) == 'table' then
-            Config.Tablets[name] = Config[name]
-            notes[#notes + 1] = 'Config.' .. name .. ' -> Config.Tablets.' .. name
+    cfg.Tablets = type(cfg.Tablets) == 'table' and cfg.Tablets or {}
+    for _, name in ipairs({ 'eNOTF', 'FireTab' }) do
+        if type(cfg[name]) == 'table' then
+            cfg.Tablets[name] = cfg[name]
+            notes[#notes + 1] = 'Config.' .. name .. ' -> Tablets.' .. name
         end
-        local t = Config.Tablets[name] or { Enabled = false, Command = name:lower() }
-        Config.Tablets[name] = t
-        t.Path = t.Path or path
-        t.AllowedJobs = t.AllowedJobs or {}
-        t.RequiredItem = t.RequiredItem or 'tablet'
-    end
-    Config.Admin = Config.Admin or {}
-    Config.Admin.Command = Config.Admin.Command or 'efbridge'
-    Config.Admin.Ace = Config.Admin.Ace or 'ef_bridge.admin'
-
-    if isServer then
-        ServerConfig = ServerConfig or {}
-        if ServerConfig.APIKey then
-            ServerConfig.Ignis = ServerConfig.Ignis or {}
-            ServerConfig.Ignis.APIKey = ServerConfig.Ignis.APIKey or ServerConfig.APIKey
-            notes[#notes + 1] = 'ServerConfig.APIKey -> ServerConfig.Ignis.APIKey'
-        end
-        ServerConfig.Ignis = ServerConfig.Ignis or {}
-        for _, name in ipairs({ 'EMDSync', 'ENOTFBilling' }) do
-            if type(Config[name]) == 'table' and not ServerConfig[name] then
-                ServerConfig[name] = Config[name]
-                notes[#notes + 1] = 'Config.' .. name .. ' -> ServerConfig.' .. name
-            end
-        end
-        ServerConfig.EMDSync = ServerConfig.EMDSync or { Enabled = false }
-        ServerConfig.ENOTFBilling = ServerConfig.ENOTFBilling or { Enabled = false }
-        ServerConfig.Lex = ServerConfig.Lex or { Enabled = false }
-        ServerConfig.Lex.FullSync = ServerConfig.Lex.FullSync or {}
     end
 
-    -- the old tables would still be readable through Config and confuse
-    -- whoever looks there later
-    Config.BaseURL, Config.TabletLogin, Config.eNOTF, Config.FireTab = nil, nil, nil, nil
-    Config.EMDSync, Config.ENOTFBilling = nil, nil
+    -- the very old place: config.lua, readable by every player
+    if cfg.APIKey and not srv.Ignis.APIKey and not srv.APIKey then
+        srv.Ignis.APIKey = cfg.APIKey
+        notes[#notes + 1] = 'Config.APIKey -> Ignis.APIKey (this key was public, better create a new one in ignis)'
+    end
+    if srv.APIKey then
+        srv.Ignis.APIKey = srv.Ignis.APIKey or srv.APIKey
+        notes[#notes + 1] = 'ServerConfig.APIKey -> Ignis.APIKey'
+    end
+    for _, name in ipairs({ 'EMDSync', 'ENOTFBilling' }) do
+        if type(cfg[name]) == 'table' and srv[name] == nil then
+            srv[name] = cfg[name]
+            notes[#notes + 1] = 'Config.' .. name .. ' -> ' .. name
+        end
+    end
 
     return notes
 end

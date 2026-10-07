@@ -7,6 +7,7 @@
 
 (function () {
   const STATUS_GROUP = "Status";
+  const IMPORT_GROUP = "Import";
 
   let schema = [];
   let state = {};
@@ -15,6 +16,8 @@
   let changes = {};
   let resets = new Set();
   let errors = {};
+  let importText = "";
+  let importResult = null;
 
   const $ = (id) => document.getElementById(id);
 
@@ -47,6 +50,7 @@
     for (const entry of schema) {
       if (!list.includes(entry.group)) list.push(entry.group);
     }
+    list.push(IMPORT_GROUP);
     return list;
   }
 
@@ -112,10 +116,26 @@
       return { id, node: area };
     }
 
-    if (entry.type === "number") {
-      const input = el("input", { id, type: "number", class: "efb-input efb-input--number", step: 1, min: entry.min === false ? null : entry.min, max: entry.max === false ? null : entry.max });
+    if (entry.type === "number" || entry.type === "float") {
+      const input = el("input", { id, type: "number", class: "efb-input efb-input--number", step: entry.type === "float" ? "any" : 1, min: entry.min === false ? null : entry.min, max: entry.max === false ? null : entry.max });
       input.value = value === false || value === undefined || value === null ? "" : String(value);
       input.addEventListener("input", () => setValue(entry, input.value === "" ? null : Number(input.value)));
+      return { id, node: input };
+    }
+
+    if (entry.type === "secret") {
+      // never filled: the server only says whether a key is set
+      const isSet = (state[entry.key] || {}).value === true;
+      const input = el("input", { id, type: "password", class: "efb-input", spellcheck: "false", autocomplete: "new-password", placeholder: isSet ? "gesetzt – zum Ändern neuen Schlüssel eingeben" : "noch kein Schlüssel" });
+      if (typeof changes[entry.key] === "string") input.value = changes[entry.key];
+      input.addEventListener("input", () => {
+        delete errors[entry.key];
+        resets.delete(entry.key);
+        if (input.value.trim() === "") delete changes[entry.key];
+        else changes[entry.key] = input.value.trim();
+        renderFooter();
+        renderNav();
+      });
       return { id, node: input };
     }
 
@@ -130,6 +150,9 @@
     const { id, node } = control(entry);
     const tags = el("span", { class: "efb-field__tags" });
 
+    if (entry.type === "secret") {
+      tags.append(el("span", { class: "efb-chip " + (s.value ? "efb-chip--ok" : "efb-chip--off"), text: resets.has(entry.key) ? "wird gelöscht" : s.value ? "gesetzt" : "nicht gesetzt" }));
+    }
     if (entry.restart) tags.append(el("span", { class: "efb-tag efb-tag--warn", text: "nach Neustart" }));
     if (entry.scope === "server") tags.append(el("span", { class: "efb-tag", text: "nur Server" }));
     if (Object.prototype.hasOwnProperty.call(changes, entry.key) || resets.has(entry.key)) {
@@ -139,7 +162,7 @@
         el("button", {
           type: "button",
           class: "efb-link",
-          text: "Auf config-Datei zurücksetzen",
+          text: entry.type === "secret" ? "Schlüssel löschen" : "Auf Standard zurücksetzen",
           onclick: () => {
             delete changes[entry.key];
             resets.add(entry.key);
@@ -156,7 +179,7 @@
       el("div", { class: "efb-field__head" }, el("label", { class: "efb-field__label", for: id, text: entry.label }), tags),
       node,
       entry.help ? el("p", { class: "efb-field__help", text: entry.help }) : null,
-      s.changed && !resets.has(entry.key) ? el("p", { class: "efb-field__help", text: "In der config-Datei: " + describe(entry, s.default) }) : null,
+      s.changed && !resets.has(entry.key) && entry.type !== "secret" ? el("p", { class: "efb-field__help", text: "Standard: " + describe(entry, s.default) }) : null,
       errors[entry.key] ? el("p", { class: "efb-field__error", role: "alert", text: errors[entry.key] }) : null,
     );
   }
@@ -214,7 +237,7 @@
         "section",
         { class: "efb-card" },
         el("h3", { text: "ignis" }),
-        row("API-Schlüssel", chip(status.ignisKeySet, "gesetzt", "fehlt in config_server.lua")),
+        row("API-Schlüssel", chip(status.ignisKeySet, "gesetzt", "fehlt (unter ignis eintragen)")),
         row("EMD-Sync", chip(status.emd, "an", "aus", true)),
         row("eNOTF-Abrechnung", chip(status.billing, "an", "aus", true)),
         el("div", { class: "efb-card__actions" }, action("testIgnis", "Verbindung testen"), status.emd ? action("emdSync", "EMD jetzt abgleichen") : null),
@@ -224,7 +247,7 @@
         { class: "efb-card" },
         el("h3", { text: "Lex" }),
         row("Abgleich", chip(lex.enabled, "an", "aus", true)),
-        row("API-Schlüssel", chip(lex.keySet, "gesetzt", "fehlt in config_server.lua")),
+        row("API-Schlüssel", chip(lex.keySet, "gesetzt", "fehlt (unter Lex eintragen)")),
         row("Letzter vollständiger Abgleich", lex.running ? "läuft gerade …" : last ? `${last.at} (${last.seconds} s)` : "noch keiner"),
         last ? row("Personen", `${last.persons.seen} gesehen, ${last.persons.created} neu, ${last.persons.updated} geändert, ${last.persons.skipped} übersprungen`) : null,
         last ? row("Fahrzeuge", `${last.vehicles.seen} gesehen, ${last.vehicles.created} neu, ${last.vehicles.updated} geändert, ${last.retired} abgemeldet`) : null,
@@ -232,7 +255,7 @@
         lex.lastError ? el("p", { class: "efb-field__error", text: `${lex.lastError.at}: ${lex.lastError.message}` }) : null,
         el("div", { class: "efb-card__actions" }, action("testLex", "Verbindung testen"), lex.enabled && lex.keySet ? action("lexSync", "Jetzt vollständig abgleichen") : null),
       ),
-      el("p", { class: "efb-hint", text: "API-Schlüssel stehen nur in der config_server.lua und lassen sich hier nicht ändern. Änderungen gelten sofort, außer bei Einträgen mit „nach Neustart“ (restart ef_bridge)." }),
+      el("p", { class: "efb-hint", text: "Alle Einstellungen liegen auf dem Server, config-Dateien gibt es nicht mehr. Änderungen gelten sofort, außer bei Einträgen mit „nach Neustart“ (restart ef_bridge). API-Schlüssel lassen sich setzen und löschen, aber nicht mehr anzeigen." }),
     );
     return view;
   }
@@ -274,9 +297,85 @@
       content.append(statusView());
       return;
     }
-    for (const entry of schema.filter((e) => e.group === current)) {
+    if (current === IMPORT_GROUP) {
+      content.append(importView());
+      return;
+    }
+    const entries = schema.filter((e) => e.group === current);
+    for (const entry of entries.filter((e) => !e.advanced)) {
       content.append(field(entry));
     }
+    const advanced = entries.filter((e) => e.advanced);
+    if (advanced.length) {
+      const box = el("details", { class: "efb-advanced" }, el("summary", { text: "Erweitert" }));
+      if (advanced.some((e) => errors[e.key] || Object.prototype.hasOwnProperty.call(changes, e.key))) box.open = true;
+      for (const entry of advanced) box.append(field(entry));
+      content.append(box);
+    }
+  }
+
+  // ==========================================
+  // IMPORT
+  // ==========================================
+
+  function importView() {
+    const view = el("div", { class: "efb-import" });
+    const area = el("textarea", { class: "efb-input efb-input--list efb-import__text", rows: 10, spellcheck: "false", placeholder: "Inhalt einer config.lua, config_server.lua oder settings-export.json hier einfügen" });
+    area.value = importText;
+    area.addEventListener("input", () => {
+      importText = area.value;
+      importResult = null;
+    });
+
+    const send = (apply, fromFolder) => {
+      post("adminImport", { text: fromFolder ? "" : importText, apply });
+    };
+
+    view.append(
+      el("p", { class: "efb-field__help", text: "Übernimmt Einstellungen aus alten config-Dateien von ignisTab oder ef_bridge und aus Exporten (efbridge export). Erst kommt eine Vorschau, übernommen wird erst nach „Übernehmen“. Liegen die Dateien im Ordner der Ressource, liest „Aus dem Ordner lesen“ sie direkt." }),
+      area,
+      el(
+        "div",
+        { class: "efb-card__actions" },
+        el("button", { type: "button", class: "efb-btn efb-btn--secondary", text: "Vorschau", onclick: () => send(false, false) }),
+        el("button", { type: "button", class: "efb-btn efb-btn--ghost", text: "Aus dem Ordner lesen", onclick: () => { importText = ""; send(false, true); } }),
+      ),
+    );
+
+    const r = importResult;
+    if (!r) return view;
+
+    if (r.found === 0) {
+      view.append(el("p", { class: "efb-field__error", text: "Nichts gefunden: weder eingefügter Text noch config-Dateien im Ordner." }));
+      return view;
+    }
+    for (const problem of r.problems || []) view.append(el("p", { class: "efb-field__error", text: problem }));
+    for (const note of r.notes || []) view.append(el("p", { class: "efb-field__help", text: "Altes Format: " + note }));
+
+    if ((r.applied || []).length) {
+      view.append(el("p", { class: "efb-import__done", text: `${r.applied.length} Einstellung(en) übernommen.` + (r.restart ? " Einiges davon gilt nach restart ef_bridge." : "") }));
+    } else if ((r.preview || []).length) {
+      const table = el("table", { class: "efb-import__table" }, el("thead", {}, el("tr", {}, el("th", { text: "Einstellung" }), el("th", { text: "jetzt" }), el("th", { text: "danach" }))));
+      const body = el("tbody");
+      for (const item of r.preview) {
+        body.append(el("tr", {}, el("td", {}, el("span", { text: `${item.group} › ${item.label}` })), el("td", { text: item.from }), el("td", { text: item.to })));
+      }
+      table.append(body);
+      view.append(table, el("div", { class: "efb-card__actions" }, el("button", { type: "button", class: "efb-btn efb-btn--primary", text: `${r.preview.length} übernehmen`, onclick: () => send(true, importText === "") })));
+    } else {
+      view.append(el("p", { class: "efb-field__help", text: "Alles schon so eingestellt, es gibt nichts zu übernehmen." }));
+    }
+    for (const err of r.errors || []) view.append(el("p", { class: "efb-field__error", text: `${err.label}: ${err.message}` }));
+    return view;
+  }
+
+  function imported(data) {
+    importResult = data;
+    if (data.state) state = data.state;
+    if (data.status) status = data.status;
+    if ((data.applied || []).length) toast("Import übernommen.", true);
+    current = IMPORT_GROUP;
+    render();
   }
 
   function renderFooter() {
@@ -385,6 +484,7 @@
     if (msg.type === "adminOpen") open(msg.data || {});
     else if (msg.type === "adminSaved") saved(msg.data || {});
     else if (msg.type === "adminResult") result(msg.data || {});
+    else if (msg.type === "adminImported") imported(msg.data || {});
     else if (msg.type === "adminClose") $("adminPanel").hidden = true;
   });
 

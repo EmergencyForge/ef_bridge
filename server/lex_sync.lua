@@ -35,7 +35,7 @@ end
 
 local function Active()
     local cfg = Cfg()
-    return cfg and cfg.Enabled and Bridge.LexKeySet()
+    return cfg and cfg.Enabled and (cfg.BaseURL or '') ~= '' and Bridge.LexKeySet()
 end
 
 -- ========================================
@@ -44,7 +44,7 @@ end
 
 local errorHints = {
     not_configured = 'In Lex ist noch kein Schlüssel erzeugt (Einstellungen > FiveM-Abgleich).',
-    invalid_key = 'Lex lehnt den Schlüssel ab, prüf ServerConfig.Lex.APIKey in config_server.lua.',
+    invalid_key = 'Lex lehnt den Schlüssel ab. Trag im Panel unter Lex den Schlüssel aus Lex ein (oder efbridge key lex <Schlüssel>).',
     sync_disabled = 'Der FiveM-Abgleich ist in Lex ausgeschaltet (Einstellungen > FiveM-Abgleich).',
 }
 
@@ -340,7 +340,7 @@ function LexSync.FullSync(trigger)
         return false, 'Ein Abgleich läuft gerade.'
     end
     if not Active() then
-        return false, 'Lex-Abgleich ist aus oder ServerConfig.Lex.APIKey fehlt.'
+        return false, 'Lex-Abgleich ist aus, oder Adresse bzw. Schlüssel von Lex fehlen.'
     end
     local adapter = Adapter()
     if not adapter then
@@ -524,8 +524,11 @@ function LexSync.Status()
 end
 
 function LexSync.Test()
+    if (Cfg().BaseURL or '') == '' then
+        return false, 'Die Adresse von Lex fehlt.'
+    end
     if not Bridge.LexKeySet() then
-        return false, 'ServerConfig.Lex.APIKey in config_server.lua fehlt.'
+        return false, 'Der API-Schlüssel von Lex fehlt.'
     end
     local ok, data, message = LexSync.Call('ping', {})
     if ok then

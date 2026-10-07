@@ -93,15 +93,18 @@ json = {
 local realPrint = print
 print = function(...) printed[#printed + 1] = table.concat({ ... }, " ") end
 
-dofile(root .. "config.lua")
-dofile(root .. "config_server.lua")
+function LoadResourceFile() return nil end
+dofile(root .. "shared/defaults.lua")
+dofile(root .. "server/defaults.lua")
 dofile(root .. "shared/url.lua")
 dofile(root .. "shared/settings.lua")
 Config.Ignis.BaseURL = "http://ignis.test/"
 ServerConfig.Ignis.APIKey = "secret-key"
 Config.Ignis.TabletLogin = true
-Config.Tablets.eNOTF.UseProp = false
-Config.Tablets.FireTab.UseProp = false
+for _, t in pairs(Config.Tablets) do
+    t.Enabled = true
+    t.UseProp = false
+end
 dofile(root .. "server/core.lua")
 dofile(root .. "server/main.lua")
 dofile(root .. "server/enotf_billing.lua")
@@ -109,6 +112,8 @@ dofile(root .. "server/billing-custom.lua")
 -- fresh client state, like a player joining
 local function loadClient()
     dofile(root .. "client/main.lua")
+    -- the server answers the settings request (its loop runs in a thread here)
+    handlers['ef_bridge:settings'](Bridge.SharedSettings())
     GetPlayerCharacterData = function()
         return { firstName = "Max", lastName = "Muster", cid = "C1", job = "admin" }
     end
@@ -207,10 +212,6 @@ ev = run(1, 200, "ok", okBody)
 check("disabled: nothing happens", ev == nil and #requests == 0)
 Config.Ignis.TabletLogin = true
 
-Config.APIKey = "secret-key"
-ev = run(1, 200, "ok", okBody)
-check("key in config.lua: no request, failure", #requests == 0 and ev.name == 'ef_bridge:tabletLoginFailed')
-Config.APIKey = nil
 
 -- a modified client firing the event in a loop
 identifiers[4] = "discord:223456789012345678"
@@ -234,7 +235,7 @@ local charData = { firstName = "Max", lastName = "Muster", job = "admin" }
 reset(403, "denied", { success = false, message = "Zugriff verweigert" })
 source = 1
 handlers['ef_bridge:identifyCharacter']("sess-0123456789abcdef", charData)
-check("identify: rejected key (403) points to config_server.lua", printedContains("config_server.lua"))
+check("identify: rejected key (403) says where to set the key", printedContains("efbridge key ignis"))
 
 -- a session ID in the log is enough to take over the ignis session
 local sessionId = "0123456789abcdefghijklmnopqrstuv"
@@ -374,6 +375,19 @@ reset(200, "ok", okBody)
 OpenTablet('eNOTF')
 CloseTablet()
 check("after the cooldown: login link", #serverEvents == 1 and nuiMessages[2] and nuiMessages[2].type == "tabletLogin")
+
+-- tablets wait for the settings from the server
+dofile(root .. "client/main.lua")
+reset(200, "ok", okBody)
+OpenTablet('eNOTF')
+check("before the settings arrive: no tablet", #nuiMessages == 0 and notifications[1] and notifications[1]:find("noch geladen"))
+handlers['ef_bridge:settings'](Bridge.SharedSettings())
+local ignisUrl = Config.Ignis.BaseURL
+Config.Ignis.BaseURL = ''
+reset(200, "ok", okBody)
+OpenTablet('eNOTF')
+check("without an ignis address: no tablet, a hint", #nuiMessages == 0 and notifications[1] and notifications[1]:find("Adresse von ignis"))
+Config.Ignis.BaseURL = ignisUrl
 
 realPrint(failed == 0 and "all checks passed" or (failed .. " check(s) failed"))
 os.exit(failed == 0 and 0 or 1)

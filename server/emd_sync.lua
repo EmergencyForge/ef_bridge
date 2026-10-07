@@ -573,7 +573,7 @@ local function HandleHeartbeatResponse(statusCode, response)
         -- once instead of on every heartbeat
         if (statusCode == 401 or statusCode == 403) and not apiKeyHintShown then
             apiKeyHintShown = true
-            print("^1[Heartbeat]^7 API key rejected (" .. statusCode .. "), check ServerConfig.Ignis.APIKey in config_server.lua")
+            print("^1[Heartbeat]^7 API key rejected (" .. statusCode .. "), check the ignis API key (/efbridge or `efbridge key ignis <key>`)")
         end
         if Config.Debug then
             print("^1[Heartbeat]^7 request failed, status code: " .. tostring(statusCode))

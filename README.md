@@ -4,7 +4,7 @@ FiveM-Ressource von EmergencyForge, die den Spielserver mit [ignis](https://gith
 
 Für ignis bringt ef_bridge das eNOTF-Tablet und das FireTab ins Spiel, gleicht Fahrzeuge, Status und Lagemeldungen mit `emergencydispatch` ab und reicht freigegebene eNOTF-Protokolle an ein Abrechnungsskript weiter. Für Lex meldet ef_bridge die Charaktere als Personen und ihre Fahrzeuge samt Halter.
 
-Jedes Modul lässt sich einzeln einschalten. Wer nur Lex nutzt, braucht keine ignis-Installation, und umgekehrt.
+Jedes Modul lässt sich einzeln einschalten. Wer nur Lex nutzt, braucht keine ignis-Installation, und umgekehrt. Config-Dateien gibt es nicht: eingestellt wird alles im Spiel im Admin-Panel oder in der Serverkonsole.
 
 ## Installation
 
@@ -12,13 +12,10 @@ Die ausführliche Anleitung mit allen Einstellungen, Rechten und Hilfe bei Probl
 
 1. Neuestes Release-ZIP von der [Releases-Seite](https://github.com/EmergencyForge/ignisTab/releases) herunterladen
 2. Den Ordner `ef_bridge` in das `resources`-Verzeichnis des FiveM-Servers entpacken
-3. In der `config.lua` die Adresse von ignis eintragen, in der `config_server.lua` die API-Schlüssel und, falls genutzt, die Adresse von Lex
-4. `ensure ef_bridge` in die `server.cfg` eintragen und `add_ace group.admin ef_bridge.admin allow` für das Admin-Panel
+3. `ensure ef_bridge` und `add_ace group.admin ef_bridge.admin allow` in die `server.cfg` eintragen
+4. Server starten, im Spiel `/efbridge` öffnen und Adressen, API-Schlüssel und die gewünschten Module eintragen
 
-Wer von ignisTab kommt: [Umstieg von ignisTab](INSTALL.md#umstieg-von-ignistab) in der INSTALL.md.
-
-> [!IMPORTANT]
-> API-Schlüssel gehören in die `config_server.lua`, nie in die `config.lua`. Die `config.lua` lädt jeder Spieler mit der Ressource herunter.
+Wer von ignisTab kommt, legt seine alte `config.lua` und `config_server.lua` in den neuen Ordner: ef_bridge übernimmt sie beim ersten Start. Mehr dazu unter [Umstieg von ignisTab](INSTALL.md#umstieg-von-ignistab).
 
 ## Module
 
@@ -34,17 +31,19 @@ Wer von ignisTab kommt: [Umstieg von ignisTab](INSTALL.md#umstieg-von-ignistab) 
 
 ## Admin-Panel
 
-`/efbridge` öffnet im Spiel ein Panel mit dem Zustand aller Module und fast allen Einstellungen. Es braucht das ACE-Recht `ef_bridge.admin`. Änderungen gelten sofort, ein paar (Chatbefehle, Standardtasten, Framework, Statustabelle) erst nach `restart ef_bridge`; das Panel markiert sie. Der Server speichert die Änderungen in seinem KVP-Speicher, sie überleben also einen Neustart und ein Update, das den Ordner ersetzt. Pro Einstellung lässt sich auf den Wert aus der config-Datei zurückschalten.
+`/efbridge` öffnet im Spiel ein Panel mit dem Zustand aller Module und allen Einstellungen. Es braucht das ACE-Recht `ef_bridge.admin`. Änderungen gelten sofort, ein paar (Chatbefehle, Standardtasten, Framework, Statustabelle) erst nach `restart ef_bridge`; das Panel markiert sie. Der Server speichert alles in seinem KVP-Speicher, es überlebt also einen Neustart und ein Update, das den Ordner ersetzt. Pro Einstellung lässt sich auf den Standard zurückschalten.
 
-Die API-Schlüssel stehen bewusst nicht im Panel. Es zeigt nur, ob sie gesetzt sind, und testet die Verbindung.
+API-Schlüssel lassen sich im Panel setzen und löschen, angezeigt werden sie nie wieder, und sie verlassen den Server nicht. Unter **Import** übernimmt das Panel alte config-Dateien von ignisTab per Einfügen, mit Vorschau vor dem Übernehmen.
 
-Dasselbe geht über die Serverkonsole:
+Dasselbe geht über die Serverkonsole, auch bevor jemand auf dem Server ist:
 
 ```
 efbridge status
+efbridge set Ignis.BaseURL https://ignis.example.de/
+efbridge key ignis <Schlüssel>
 efbridge set Tablets.eNOTF.AllowedJobs ambulance,doj
-efbridge reset Tablets.eNOTF.AllowedJobs
-efbridge lexsync
+efbridge import          # config.lua / config_server.lua aus dem Ordner
+efbridge export          # Einstellungen ohne Schlüssel nach settings-export.json
 efbridge test
 ```
 
@@ -66,7 +65,7 @@ exports.ef_bridge:LexSyncCharacter(source)       -- oder eine Citizen-ID / ESX-I
 exports.ef_bridge:LexFullSync()
 ```
 
-Den Schlüssel und die Adresse für `ServerConfig.Lex` zeigt Lex unter Einstellungen › FiveM-Abgleich.
+Schlüssel und Adresse zeigt Lex unter Einstellungen › FiveM-Abgleich, eingetragen werden sie im Panel unter Lex.
 
 ## Tablet-Login
 
@@ -81,9 +80,9 @@ Der API-Key bleibt dabei auf dem Server. Neue Konten legt der Tablet-Login nicht
 Voraussetzungen:
 
 - In ignis ist die Systemeinstellung `TABLET_LOGIN_ENABLED` eingeschaltet und ein API-Key gesetzt.
-- Derselbe Key steht in der `config_server.lua` bei `ServerConfig.Ignis.APIKey`.
+- Derselbe Key ist in ef_bridge eingetragen (Panel unter ignis oder `efbridge key ignis <Schlüssel>`).
 - Der FiveM-Server setzt Discord als Identifier voraus. Nur dann liefert FiveM eine geprüfte Discord-ID.
-- In der `config.lua` steht `Config.Ignis.TabletLogin = true`.
+- In ef_bridge ist „Tablet-Login über Discord-ID“ eingeschaltet (`Ignis.TabletLogin`).
 
 ## Tests
 
@@ -91,6 +90,6 @@ Die Prüfskripte laufen ohne FiveM, aus dem Repo-Root:
 
 ```
 lua tests/tablet_login_check.lua   # Lua 5.4: Tablet-Login, Identify, Abrechnung, Client
-lua tests/bridge_check.lua         # Lua 5.4: Einstellungen, Admin-Panel, Lex-Abgleich
+lua tests/bridge_check.lua         # Lua 5.4: Einstellungen, Import, Admin-Panel, Lex-Abgleich
 node tests/nui_check.js            # NUI (master.js und die Tablet-Skripte)
 ```

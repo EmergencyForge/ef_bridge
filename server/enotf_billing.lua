@@ -115,7 +115,7 @@ function GetReleasedENOTFProtocols()
     end
 
     if not Bridge.IgnisKeySet() then
-        print("^1[eNOTF-Billing]^7 API key is not set, check ServerConfig.Ignis.APIKey in config_server.lua")
+        print("^1[eNOTF-Billing]^7 no ignis API key set (/efbridge or `efbridge key ignis <key>`)")
         return {}
     end
 

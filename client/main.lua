@@ -1,12 +1,12 @@
 local Framework = nil
 local FrameworkName = nil
 
-for _, note in ipairs(Settings.MigrateLegacy(false)) do
-    print("^1[ef_bridge]^7 old config layout: " .. note)
-end
+-- The server sends the shared settings: the built-in defaults with every
+-- change from the admin panel. Commands, key mappings and the framework
+-- wait for them, the tablets refuse to open before.
+local settingsReady = false
+local RegisterTabletCommands -- defined further down
 
--- The server sends the shared settings, its ingame changes included. Until
--- they arrive, config.lua applies.
 RegisterNetEvent('ef_bridge:settings')
 AddEventHandler('ef_bridge:settings', function(values)
     if type(values) ~= 'table' then return end
@@ -16,11 +16,28 @@ AddEventHandler('ef_bridge:settings', function(values)
             Settings.Write(entry, value)
         end
     end
+    if not settingsReady then
+        settingsReady = true
+        RegisterTabletCommands()
+    end
 end)
-TriggerServerEvent('ef_bridge:settings:request')
+
+-- asks again while the server hasn't answered (it may still be starting)
+CreateThread(function()
+    while not settingsReady do
+        TriggerServerEvent('ef_bridge:settings:request')
+        Wait(10000)
+    end
+end)
 
 -- Framework detection
 CreateThread(function()
+    local waited = 0
+    while not settingsReady and waited < 15000 do
+        Wait(250)
+        waited = waited + 250
+    end
+
     if Config.Framework == 'auto' then
         if GetResourceState('qb-core') == 'started' then
             Framework = exports['qb-core']:GetCoreObject()
@@ -233,9 +250,19 @@ function OpenTablet(tabletType)
         return
     end
 
+    if not settingsReady then
+        ShowNotification("Die Einstellungen werden noch geladen, versuch es gleich noch mal.", "error")
+        return
+    end
+
     local config = Config.Tablets[tabletType]
     if not config or not config.Enabled then
         ShowNotification("Dieses Tablet ist nicht aktiviert!", "error")
+        return
+    end
+
+    if (Config.Ignis.BaseURL or '') == '' then
+        ShowNotification("Für das Tablet fehlt die Adresse von ignis (/efbridge).", "error")
         return
     end
 
@@ -419,16 +446,21 @@ CreateThread(function()
     end
 end)
 
--- Commands. Names and default keys come from config.lua: a key mapping
+-- Commands and key mappings, once the settings are there. A key mapping
 -- can't be taken back at runtime, so a new command or key from the admin
--- panel applies after a restart.
-RegisterCommand(Config.Tablets.eNOTF.Command, function()
-    OpenTablet('eNOTF')
-end, false)
-
-RegisterCommand(Config.Tablets.FireTab.Command, function()
-    OpenTablet('FireTab')
-end, false)
+-- panel applies after a restart. Players can rebind the keys under
+-- FiveM settings > key bindings > FiveM; OpenKey = nil still lists the
+-- binding, just without a default key. Registered even while a tablet is
+-- switched off, so switching it on in the panel brings the binding along.
+function RegisterTabletCommands()
+    for _, name in ipairs({ 'eNOTF', 'FireTab' }) do
+        local tablet = Config.Tablets[name]
+        RegisterCommand(tablet.Command, function()
+            OpenTablet(name)
+        end, false)
+        RegisterKeyMapping(tablet.Command, name .. ' Tablet öffnen/schließen', 'keyboard', tablet.OpenKey or '')
+    end
+end
 
 RegisterCommand('efbridgetest', function()
     local charData = GetPlayerCharacterData()
@@ -439,13 +471,6 @@ RegisterCommand('efbridgetest', function()
     end
 end, false)
 
--- Key mappings - players can rebind these under
--- FiveM settings > key bindings > FiveM.
--- OpenKey = nil still lists the binding, just without a default key.
--- Registered even while a tablet is switched off, so switching it on in
--- the admin panel brings the binding along.
-RegisterKeyMapping(Config.Tablets.eNOTF.Command, 'eNOTF Tablet öffnen/schließen', 'keyboard', Config.Tablets.eNOTF.OpenKey or '')
-RegisterKeyMapping(Config.Tablets.FireTab.Command, 'FireTab Tablet öffnen/schließen', 'keyboard', Config.Tablets.FireTab.OpenKey or '')
 
 -- Status changes coming from the web side (FireTab) get pushed into
 -- emergencydispatch here.
