@@ -57,6 +57,7 @@ end
 -- ========================================
 -- Detected on first use, because ef_bridge may start before qb-core or
 -- es_extended. Qbox ships a qb-core bridge and counts as QBCore.
+-- 'standalone' has no framework object, only the name.
 
 local Framework, FrameworkName
 
@@ -67,6 +68,8 @@ function Bridge.Framework()
             Framework, FrameworkName = exports['qb-core']:GetCoreObject(), 'qbcore'
         elseif wanted == 'esx' or (wanted == 'auto' and GetResourceState('es_extended') == 'started') then
             Framework, FrameworkName = exports['es_extended']:getSharedObject(), 'esx'
+        elseif wanted == 'standalone' then
+            FrameworkName = 'standalone'
         end
     end
     return Framework, FrameworkName
@@ -96,6 +99,11 @@ function Bridge.GetCharacter(src)
                 job = xPlayer.job and xPlayer.job.name or '',
                 cid = xPlayer.identifier
             }
+        end
+    elseif name == 'standalone' then
+        local playerName = GetPlayerName(src)
+        if playerName then
+            return { name = playerName, job = '', cid = nil }
         end
     end
 

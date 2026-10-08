@@ -30,14 +30,11 @@ CreateThread(function()
     end
 end)
 
--- Framework detection
-CreateThread(function()
-    local waited = 0
-    while not settingsReady and waited < 15000 do
-        Wait(250)
-        waited = waited + 250
-    end
-
+-- Framework detection. 'standalone' is never guessed: with 'auto' and no
+-- framework running the tablet keeps refusing, so a server that merely
+-- starts ef_bridge before its framework doesn't lose the job check.
+function DetectFramework()
+    Framework, FrameworkName = nil, nil
     if Config.Framework == 'auto' then
         if GetResourceState('qb-core') == 'started' then
             Framework = exports['qb-core']:GetCoreObject()
@@ -52,7 +49,19 @@ CreateThread(function()
     elseif Config.Framework == 'esx' then
         Framework = exports['es_extended']:getSharedObject()
         FrameworkName = 'esx'
+    elseif Config.Framework == 'standalone' then
+        FrameworkName = 'standalone'
     end
+end
+
+CreateThread(function()
+    local waited = 0
+    while not settingsReady and waited < 15000 do
+        Wait(250)
+        waited = waited + 250
+    end
+
+    DetectFramework()
 
     if Config.Debug then
         print("^2[ef_bridge]^7 Client framework detected: " .. (FrameworkName or "None"))
@@ -118,6 +127,14 @@ function GetPlayerCharacterData()
                 job = PlayerData.job.name
             }
         end
+    elseif FrameworkName == 'standalone' then
+        -- no characters and no jobs: the FiveM name stands in for both
+        return {
+            firstName = GetPlayerName(PlayerId()),
+            lastName = '',
+            cid = '',
+            job = ''
+        }
     end
 
     return nil
@@ -273,7 +290,8 @@ function OpenTablet(tabletType)
         return
     end
 
-    if config.AllowedJobs then
+    -- without a framework there are no jobs to check against
+    if config.AllowedJobs and FrameworkName ~= 'standalone' then
         local found = false
         for _, v in ipairs(config.AllowedJobs) do
             if v == charData.job then

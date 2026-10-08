@@ -3,7 +3,7 @@
 -- console command efbridge; the server keeps the changes and sends the
 -- shared ones to every client.
 Config = {
-    Framework = 'auto', -- 'auto', 'qbcore' or 'esx'
+    Framework = 'auto', -- 'auto', 'qbcore', 'esx' or 'standalone'
     Debug = false,
 
     -- Fixed on purpose: you need them to reach the panel in the first place

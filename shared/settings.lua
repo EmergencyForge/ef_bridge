@@ -17,7 +17,7 @@ local function tablet(name, label)
     local group = label
     return {
         { key = base .. 'Enabled', scope = 'shared', type = 'boolean', group = group, label = 'Tablet aktiv' },
-        { key = base .. 'AllowedJobs', scope = 'shared', type = 'list', group = group, label = 'Erlaubte Jobs', help = 'Jobnamen genau wie im Framework, einer pro Zeile.' },
+        { key = base .. 'AllowedJobs', scope = 'shared', type = 'list', group = group, label = 'Erlaubte Jobs', help = 'Jobnamen genau wie im Framework, einer pro Zeile. Ohne Framework (standalone) gilt die Liste nicht.' },
         { key = base .. 'RequireItem', scope = 'shared', type = 'boolean', group = group, label = 'Nur mit Gegenstand im Inventar' },
         { key = base .. 'RequiredItem', scope = 'shared', type = 'string', group = group, label = 'Gegenstand', pattern = '^[%w_%-]+$', max = 60 },
         { key = base .. 'UseProp', scope = 'shared', type = 'boolean', group = group, label = 'Tablet in der Hand zeigen' },
@@ -45,7 +45,7 @@ end
 
 add({
     { key = 'Debug', scope = 'shared', type = 'boolean', group = 'Allgemein', label = 'Ausführliche Meldungen in der Konsole' },
-    { key = 'Framework', scope = 'shared', type = 'select', group = 'Allgemein', label = 'Framework', options = { 'auto', 'qbcore', 'esx' }, restart = true },
+    { key = 'Framework', scope = 'shared', type = 'select', group = 'Allgemein', label = 'Framework', options = { 'auto', 'qbcore', 'esx', 'standalone' }, help = 'standalone: Server ohne Framework. Das Tablet nimmt den FiveM-Namen, die erlaubten Jobs gelten dann nicht.', restart = true },
 
     { key = 'Animation.dict', scope = 'shared', type = 'string', group = 'Allgemein', label = 'Animation: Dictionary', pattern = '^[%w_@%-%.]+$', max = 120, advanced = true },
     { key = 'Animation.anim', scope = 'shared', type = 'string', group = 'Allgemein', label = 'Animation: Name', pattern = '^[%w_%-%.]+$', max = 60, advanced = true },
