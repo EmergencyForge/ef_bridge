@@ -115,19 +115,14 @@ end
 -- ========================================
 
 function Bridge.HasDatabase()
-    return GetResourceState('oxmysql') == 'started' or (MySQL ~= nil and MySQL.Async ~= nil)
+    return GetResourceState('oxmysql') == 'started'
 end
 
 -- Rows for a SELECT, nil without a database or on an error
 function Bridge.Query(query, parameters)
     local p = promise.new()
-    if GetResourceState('oxmysql') == 'started' then
+    if Bridge.HasDatabase() then
         exports.oxmysql:execute(query, parameters or {}, function(result)
-            p:resolve(result)
-        end)
-    elseif MySQL and MySQL.Async then
-        -- mysql-async fallback for older ESX setups
-        MySQL.Async.fetchAll(query, parameters or {}, function(result)
             p:resolve(result)
         end)
     else

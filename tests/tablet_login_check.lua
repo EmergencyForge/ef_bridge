@@ -45,6 +45,7 @@ function GetPlayerIdentifierByType(src, kind) return identifiers[src] end
 local aceAllowed = {}
 function IsPlayerAceAllowed(src, perm) return aceAllowed[src] == perm end
 function GetPlayerName(src) return "Spieler" .. src end
+function PlayerId() return 1 end
 function GetCurrentResourceName() return "ef_bridge" end
 local kvp = {}
 function SetResourceKvp(key, value) kvp[key] = value end
@@ -114,6 +115,7 @@ local function loadClient()
     dofile(root .. "client/main.lua")
     -- the server answers the settings request (its loop runs in a thread here)
     handlers['ef_bridge:settings'](Bridge.SharedSettings())
+    FrameworkCharacterData = GetPlayerCharacterData
     GetPlayerCharacterData = function()
         return { firstName = "Max", lastName = "Muster", cid = "C1", job = "admin" }
     end
@@ -327,6 +329,32 @@ check("billing: server trigger without player sends nothing", ev == nil)
 check("billing: custom hooks are no net events", not netEvents['enotf-billing:autoSync'] and not netEvents['enotf-billing:manualSync'])
 check("billing: requestProtocols stays reachable for players with ACE", netEvents['enotf-billing:requestProtocols'] == true)
 
+-- the hook in billing-custom.lua runs for both syncs
+local billed = {}
+local customBilling = ProcessBilling
+ProcessBilling = function(protocols, src) billed[#billed + 1] = { protocols = protocols, src = src } end
+local protocols = { { name = "Max Muster", missionNumber = "123_1", protocolType = 0 } }
+handlers['enotf-billing:autoSync'](protocols)
+handlers['enotf-billing:manualSync'](protocols, 6)
+check("billing: background sync reaches ProcessBilling", billed[1] and billed[1].protocols == protocols and billed[1].src == nil)
+check("billing: manual sync reaches ProcessBilling with the player", billed[2] and billed[2].src == 6)
+ProcessBilling = customBilling
+
+-- ===== standalone =====
+
+Config.Framework = 'standalone'
+dofile(root .. "server/core.lua")
+dofile(root .. "server/main.lua")
+reset(200, "ok", { success = true })
+source = 1
+handlers['ef_bridge:identifyCharacter']("standalone-session-0001")
+body = requests[1] and requests[1].body or ""
+check("identify (standalone): FiveM name, no job", body:find('"char_name":"Spieler1"', 1, true) ~= nil
+    and body:find('"char_job":""', 1, true) ~= nil and not body:find("char_id"))
+Config.Framework = 'auto'
+dofile(root .. "server/core.lua")
+dofile(root .. "server/main.lua")
+
 -- ===== client =====
 
 reset(200, "ok", okBody)
@@ -375,6 +403,26 @@ reset(200, "ok", okBody)
 OpenTablet('eNOTF')
 CloseTablet()
 check("after the cooldown: login link", #serverEvents == 1 and nuiMessages[2] and nuiMessages[2].type == "tabletLogin")
+
+-- without a framework: only when the server says so
+GetPlayerCharacterData = FrameworkCharacterData
+local frameworks = startedResources
+startedResources = {}
+DetectFramework()
+reset(200, "ok", okBody)
+OpenTablet('eNOTF')
+check("auto without a framework: no tablet", #nuiMessages == 0 and notifications[1] and notifications[1]:find("Daten"))
+startedResources = frameworks
+Config.Framework = 'standalone'
+DetectFramework()
+reset(200, "ok", okBody)
+OpenTablet('eNOTF')
+local opened = nuiMessages[1]
+check("standalone: tablet opens with the FiveM name", opened and opened.type == "openTablet"
+    and opened.characterData.firstName == "Spieler1")
+check("standalone: the job list doesn't apply", Config.Tablets.eNOTF.AllowedJobs[1] ~= nil and opened ~= nil)
+CloseTablet()
+Config.Framework = 'auto'
 
 -- tablets wait for the settings from the server
 dofile(root .. "client/main.lua")

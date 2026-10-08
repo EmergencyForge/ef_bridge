@@ -8,7 +8,7 @@
 --     birthdate = "1990-01-15",      -- YYYY-MM-DD
 --     transport = true,              -- whether the patient was transported
 --     missionNumber = "ENR_123",
---     protocolType = 1,              -- 0 = Notarzt, 1 = Rettungsdienst, ...
+--     protocolType = 0,              -- 0 = Notfallprotokoll (Rettungsdienst), 1 = Notarztprotokoll
 --     vehicleCallsign = "RTW 1-82-1"
 --   },
 --   ...
@@ -202,7 +202,7 @@ CreateThread(function()
             local protocols = GetReleasedENOTFProtocols()
 
             if protocols and #protocols > 0 then
-                -- handled by whatever listens in billing-custom.lua
+                -- ProcessBilling in billing-custom.lua
                 TriggerEvent('enotf-billing:autoSync', protocols)
             end
         end

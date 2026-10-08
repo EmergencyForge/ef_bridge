@@ -12,7 +12,7 @@ Kommst du von ignisTab, lies zuerst [Umstieg von ignisTab](#umstieg-von-ignistab
 **Auf dem FiveM-Server**
 
 - ein aktuelles FiveM-Server-Build (Artifacts)
-- QBCore, Qbox oder ESX. Ohne Framework lässt sich kein Tablet öffnen und es gibt nichts für Lex, weil ef_bridge Name, Job und Charakter von dort holt.
+- QBCore, Qbox oder ESX. Ein Server ohne Framework stellt `Framework` auf `standalone`: Die Tablets nehmen dann den FiveM-Namen, die erlaubten Jobs gelten nicht, ein Gegenstand lässt sich nur mit `ox_inventory` verlangen, und für Lex gibt es nichts abzugleichen.
 - `oxmysql` für EMD-Sync, die eNOTF-Abrechnung und den Lex-Abgleich
 - `emergencydispatch`, wenn du EMD-Sync nutzt
 - `ox_inventory`, wenn ein Tablet nur mit einem Gegenstand im Inventar funktionieren soll (optional, QBCore- und ESX-Inventare gehen auch)
@@ -120,7 +120,7 @@ Die Namen sind die, die `efbridge get/set` versteht. Im Panel stehen sie in den 
 | Einstellung | Bedeutung | Standard |
 |---|---|---|
 | `Enabled` | Tablet ein- oder ausschalten | aus |
-| `AllowedJobs` | Jobs, die das Tablet öffnen dürfen. Die Namen müssen genau so heißen wie in deinem Framework. | `ambulance`, `admin` / `fire`, `admin` |
+| `AllowedJobs` | Jobs, die das Tablet öffnen dürfen. Die Namen müssen genau so heißen wie in deinem Framework. Mit `standalone` gilt die Liste nicht. | `ambulance`, `admin` / `fire`, `admin` |
 | `RequireItem` | Tablet nur mit Gegenstand im Inventar | aus |
 | `RequiredItem` | Name des Gegenstands | `tablet` |
 | `UseProp` | Tablet als Gegenstand in der Hand zeigen | an |
@@ -167,7 +167,7 @@ Die Standardwerte passen für die meisten Server: Status alle 5 Sekunden, Einsat
 
 Holt freigegebene eNOTF-Protokolle aus ignis, damit ein Abrechnungsskript auf deinem Server Rechnungen stellen kann. Braucht ignis ab 2026.0.26-beta und `oxmysql`. Einschalten mit `ENOTFBilling.Enabled`, im Hintergrund abrufen mit `ENOTFBilling.AutoSync` (alle 15 Minuten, `ENOTFBilling.SyncInterval`).
 
-Mit „Schon abgerechnete Protokolle überspringen“ (`ENOTFBilling.FilterProcessed`, ab Werk an) legt ef_bridge die Tabelle `enotf_billing` selbst an. Was pro Protokoll passieren soll (Rechnung stellen, Geld abbuchen), trägst du in `server/billing-custom.lua` bei `processBilling` ein. Dort steht ein Beispiel. Das ist die einzige Datei, in der du noch selbst etwas schreibst, denn sie ist Code, keine Einstellung.
+Mit „Schon abgerechnete Protokolle überspringen“ (`ENOTFBilling.FilterProcessed`, ab Werk an) legt ef_bridge die Tabelle `enotf_billing` selbst an. Was pro Protokoll passieren soll (Rechnung stellen, Geld abbuchen), trägst du in `server/billing-custom.lua` in die Funktion `ProcessBilling` ein. Sie läuft bei jedem Abruf, im Hintergrund wie mit `/enotf-billing-sync`, und darüber steht, welche Felder ein Protokoll hat. Das ist die einzige Datei, in der du noch selbst etwas schreibst, denn sie ist Code, keine Einstellung.
 
 Mit `/enotf-billing-sync` stößt du einen Abruf von Hand an.
 
@@ -264,7 +264,7 @@ Lade die neue ZIP-Datei herunter und ersetze den Ordner `resources/ef_bridge`, d
 - Läuft ignis über HTTPS mit gültigem Zertifikat? Öffne die Adresse zum Test im normalen Browser.
 - Bei nginx: Sind die `map`-Blöcke für FiveM eingebunden? Ohne sie verbietet nginx das Einbetten ins Tablet.
 
-**„Fehler beim Abrufen deiner Daten!“:** ef_bridge hat kein QBCore, Qbox oder ESX gefunden. Prüf, ob das Framework vor ef_bridge startet, oder setz es fest: `efbridge set Framework qbcore` (oder `esx`) und `restart ef_bridge`.
+**„Fehler beim Abrufen deiner Daten!“:** ef_bridge hat kein QBCore, Qbox oder ESX gefunden. Prüf, ob das Framework vor ef_bridge startet, oder setz es fest: `efbridge set Framework qbcore` (oder `esx`) und `restart ef_bridge`. Läuft der Server ohne Framework: `efbridge set Framework standalone`.
 
 **„Für das Tablet fehlt die Adresse von ignis“:** Unter ignis im Panel die Adresse eintragen.
 
