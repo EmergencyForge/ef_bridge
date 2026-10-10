@@ -19,6 +19,41 @@
   let importText = "";
   let importResult = null;
 
+  // Short text and icon per section. Groups the server adds later still
+  // work, they just show the plain dot.
+  const GROUP_INFO = {
+    Status: { icon: "pulse", text: "Verbindungen, Abgleiche und Version auf einen Blick." },
+    Allgemein: { icon: "sliders", text: "Framework, Konsolenausgaben und die Animation mit dem Tablet." },
+    ignis: { icon: "ignis", text: "Adresse, API-Schlüssel und Anmeldung über ignis." },
+    "eNOTF-Tablet": { icon: "tablet", text: "Freischaltung, Berechtigungen, Befehl, Taste und das Modell in der Hand." },
+    FireTab: { icon: "tabletWide", text: "Freischaltung, Berechtigungen, Befehl, Taste und das Modell in der Hand." },
+    "EMD-Sync": { icon: "sync", text: "Gleicht Einsatzdaten, Status und Lagemeldungen von emergencydispatch mit ignis ab." },
+    "eNOTF-Abrechnung": { icon: "receipt", text: "Holt freigegebene eNOTF-Protokolle aus ignis, damit der Server Patienten abrechnen kann." },
+    Lex: { icon: "scale", text: "Überträgt Charaktere als Personen und ihre Fahrzeuge nach Lex." },
+    Import: { icon: "import", text: "Übernimmt Einstellungen aus alten config-Dateien und Exporten." },
+  };
+
+  const ICONS = {
+    dot: '<circle cx="12" cy="12" r="3"/>',
+    pulse: '<path d="M3 12h4l2.5-6 5 12 2.5-6H21"/>',
+    sliders: '<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>',
+    tablet: '<rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M11 18h2"/>',
+    tabletWide: '<rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M18 11v2"/>',
+    sync: '<path d="M20 11a8 8 0 0 0-14.2-4.6L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.2 4.6L20 16"/><path d="M20 20v-4h-4"/>',
+    receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
+    scale: '<path d="M12 4v16M8 20h8M5 7h14"/><path d="M5 7l-3 7a3 3 0 0 0 6 0z"/><path d="M19 7l-3 7a3 3 0 0 0 6 0z"/>',
+    import: '<path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>',
+    server: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
+    close: '<path d="M6 6l12 12M18 6L6 18"/>',
+    refresh: '<path d="M20 12a8 8 0 1 1-2.34-5.66L20 8"/><path d="M20 3v5h-5"/>',
+    chevron: '<path d="M9 6l6 6-6 6"/>',
+    check: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.8"/>',
+    alert: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/>',
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.5v.01"/>',
+  };
+  // the mark from ignis assets/img/ignis-mark.svg
+  const IGNIS_MARK = "M24 0H96V72L72 96H0V24ZM36 80H52V44L36 60ZM40 24L50 34L60 24L50 14Z";
+
   const $ = (id) => document.getElementById(id);
 
   function el(tag, attrs, ...children) {
@@ -35,6 +70,17 @@
       node.append(child instanceof Node ? child : document.createTextNode(child));
     }
     return node;
+  }
+
+  // Only fixed markup from ICONS goes through innerHTML here, never
+  // anything the server sent.
+  function icon(name) {
+    const span = el("span", { class: name === "ignis" ? "efb-icon efb-icon--fill" : "efb-icon", "aria-hidden": "true" });
+    span.innerHTML =
+      name === "ignis"
+        ? `<svg viewBox="0 0 96 96" fill="currentColor"><path fill-rule="evenodd" d="${IGNIS_MARK}"/></svg>`
+        : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] || ICONS.dot}</svg>`;
+    return span;
   }
 
   function post(name, body) {
@@ -91,8 +137,12 @@
     if (entry.type === "boolean") {
       const input = el("input", { type: "checkbox", id, class: "efb-switch__input" });
       input.checked = value === true;
-      input.addEventListener("change", () => setValue(entry, input.checked));
-      return { id, node: el("label", { class: "efb-switch", for: id }, input, el("span", { class: "efb-switch__track", "aria-hidden": "true" })) };
+      const label = el("span", { class: "efb-switch__state", text: input.checked ? "An" : "Aus" });
+      input.addEventListener("change", () => {
+        label.textContent = input.checked ? "An" : "Aus";
+        setValue(entry, input.checked);
+      });
+      return { id, node: el("label", { class: "efb-switch", for: id }, input, el("span", { class: "efb-switch__track", "aria-hidden": "true" }), label) };
     }
 
     if (entry.type === "select") {
@@ -176,11 +226,19 @@
     return el(
       "div",
       { class: "efb-field" + (errors[entry.key] ? " efb-field--error" : "") },
-      el("div", { class: "efb-field__head" }, el("label", { class: "efb-field__label", for: id, text: entry.label }), tags),
-      node,
-      entry.help ? el("p", { class: "efb-field__help", text: entry.help }) : null,
-      s.changed && !resets.has(entry.key) && entry.type !== "secret" ? el("p", { class: "efb-field__help", text: "Standard: " + describe(entry, s.default) }) : null,
-      errors[entry.key] ? el("p", { class: "efb-field__error", role: "alert", text: errors[entry.key] }) : null,
+      el(
+        "div",
+        { class: "efb-field__meta" },
+        el("div", { class: "efb-field__head" }, el("label", { class: "efb-field__label", for: id, text: entry.label }), tags),
+        entry.help ? el("p", { class: "efb-field__help", text: entry.help }) : null,
+        s.changed && !resets.has(entry.key) && entry.type !== "secret" ? el("p", { class: "efb-field__help", text: "Standard: " + describe(entry, s.default) }) : null,
+      ),
+      el(
+        "div",
+        { class: "efb-field__control" },
+        node,
+        errors[entry.key] ? el("p", { class: "efb-field__error", role: "alert" }, icon("alert"), el("span", { text: errors[entry.key] })) : null,
+      ),
     );
   }
 
@@ -214,6 +272,10 @@
     });
   }
 
+  function card(iconName, title, ...children) {
+    return el("section", { class: "efb-card" }, el("div", { class: "efb-card__head" }, icon(iconName), el("h3", { text: title })), el("div", { class: "efb-card__body" }, ...children));
+  }
+
   function row(label, value) {
     return el("div", { class: "efb-status__row" }, el("span", { class: "efb-status__label", text: label }), el("span", { class: "efb-status__value" }, value));
   }
@@ -224,38 +286,35 @@
     const view = el("div", { class: "efb-status" });
 
     view.append(
-      el(
-        "section",
-        { class: "efb-card" },
-        el("h3", { text: "Allgemein" }),
+      card(
+        "server",
+        "Allgemein",
         row("Version", status.version || "?"),
         row("Ressource", status.resource || "?"),
         row("Framework", status.framework ? chip(true, status.framework, "") : chip(false, "", "keins gefunden")),
         row("Datenbank", chip(status.database, "verbunden", "keine (oxmysql)")),
       ),
-      el(
-        "section",
-        { class: "efb-card" },
-        el("h3", { text: "ignis" }),
+      card(
+        "ignis",
+        "ignis",
         row("API-Schlüssel", chip(status.ignisKeySet, "gesetzt", "fehlt (unter ignis eintragen)")),
         row("EMD-Sync", chip(status.emd, "an", "aus", true)),
         row("eNOTF-Abrechnung", chip(status.billing, "an", "aus", true)),
         el("div", { class: "efb-card__actions" }, action("testIgnis", "Verbindung testen"), status.emd ? action("emdSync", "EMD jetzt abgleichen") : null),
       ),
-      el(
-        "section",
-        { class: "efb-card" },
-        el("h3", { text: "Lex" }),
+      card(
+        "scale",
+        "Lex",
         row("Abgleich", chip(lex.enabled, "an", "aus", true)),
         row("API-Schlüssel", chip(lex.keySet, "gesetzt", "fehlt (unter Lex eintragen)")),
         row("Letzter vollständiger Abgleich", lex.running ? "läuft gerade …" : last ? `${last.at} (${last.seconds} s)` : "noch keiner"),
         last ? row("Personen", `${last.persons.seen} gesehen, ${last.persons.created} neu, ${last.persons.updated} geändert, ${last.persons.skipped} übersprungen`) : null,
         last ? row("Fahrzeuge", `${last.vehicles.seen} gesehen, ${last.vehicles.created} neu, ${last.vehicles.updated} geändert, ${last.retired} abgemeldet`) : null,
         lex.lastLive ? row("Zuletzt beim Einloggen", `${lex.lastLive.at}, ${lex.lastLive.characters} Charakter(e)`) : null,
-        lex.lastError ? el("p", { class: "efb-field__error", text: `${lex.lastError.at}: ${lex.lastError.message}` }) : null,
+        lex.lastError ? el("p", { class: "efb-field__error" }, icon("alert"), el("span", { text: `${lex.lastError.at}: ${lex.lastError.message}` })) : null,
         el("div", { class: "efb-card__actions" }, action("testLex", "Verbindung testen"), lex.enabled && lex.keySet ? action("lexSync", "Jetzt vollständig abgleichen") : null),
       ),
-      el("p", { class: "efb-hint", text: "Alle Einstellungen liegen auf dem Server, config-Dateien gibt es nicht mehr. Änderungen gelten sofort, außer bei Einträgen mit „nach Neustart“ (restart ef_bridge). API-Schlüssel lassen sich setzen und löschen, aber nicht mehr anzeigen." }),
+      el("p", { class: "efb-hint" }, icon("info"), el("span", { text: "Alle Einstellungen liegen auf dem Server, config-Dateien gibt es nicht mehr. Änderungen gelten sofort, außer bei Einträgen mit „nach Neustart“ (restart ef_bridge). API-Schlüssel lassen sich setzen und löschen, aber nicht mehr anzeigen." })),
     );
     return view;
   }
@@ -267,7 +326,10 @@
   function renderNav() {
     const nav = $("efbNav");
     nav.replaceChildren();
+    const firstSetting = schema.length ? schema[0].group : null;
     for (const group of groups()) {
+      const heading = group === STATUS_GROUP ? "Übersicht" : group === firstSetting ? "Einstellungen" : group === IMPORT_GROUP ? "Werkzeuge" : null;
+      if (heading) nav.append(el("div", { class: "efb-nav__label", text: heading }));
       const dirty = schema.some((e) => e.group === group && (Object.prototype.hasOwnProperty.call(changes, e.key) || resets.has(e.key)));
       const bad = schema.some((e) => e.group === group && errors[e.key]);
       nav.append(
@@ -283,7 +345,8 @@
               renderContent();
             },
           },
-          group,
+          icon((GROUP_INFO[group] || {}).icon),
+          el("span", { class: "efb-nav__item-label", text: group }),
           bad ? el("span", { class: "efb-dot efb-dot--bad", "aria-label": "Fehler" }) : dirty ? el("span", { class: "efb-dot", "aria-label": "ungespeichert" }) : null,
         ),
       );
@@ -292,7 +355,15 @@
 
   function renderContent() {
     const content = $("efbContent");
-    content.replaceChildren(el("h2", { class: "efb-content__title", text: current }));
+    const info = GROUP_INFO[current] || {};
+    content.replaceChildren(
+      el(
+        "div",
+        { class: "efb-page" },
+        el("div", { class: "efb-page__icon" }, icon(info.icon)),
+        el("div", {}, el("h2", { class: "efb-content__title", text: current }), info.text ? el("p", { class: "efb-page__text", text: info.text }) : null),
+      ),
+    );
     if (current === STATUS_GROUP) {
       content.append(statusView());
       return;
@@ -302,12 +373,15 @@
       return;
     }
     const entries = schema.filter((e) => e.group === current);
-    for (const entry of entries.filter((e) => !e.advanced)) {
-      content.append(field(entry));
-    }
+    const basic = entries.filter((e) => !e.advanced);
+    if (basic.length) content.append(el("section", { class: "efb-card" }, ...basic.map(field)));
     const advanced = entries.filter((e) => e.advanced);
     if (advanced.length) {
-      const box = el("details", { class: "efb-advanced" }, el("summary", { text: "Erweitert" }));
+      const box = el(
+        "details",
+        { class: "efb-advanced" },
+        el("summary", {}, icon("chevron"), "Erweitert", el("span", { class: "efb-advanced__count", text: advanced.length === 1 ? "1 Einstellung" : `${advanced.length} Einstellungen` })),
+      );
       if (advanced.some((e) => errors[e.key] || Object.prototype.hasOwnProperty.call(changes, e.key))) box.open = true;
       for (const entry of advanced) box.append(field(entry));
       content.append(box);
@@ -319,7 +393,8 @@
   // ==========================================
 
   function importView() {
-    const view = el("div", { class: "efb-import" });
+    const body = el("div", { class: "efb-card__body" });
+    const view = el("section", { class: "efb-card efb-import" }, body);
     const area = el("textarea", { class: "efb-input efb-input--list efb-import__text", rows: 10, spellcheck: "false", placeholder: "Inhalt einer config.lua, config_server.lua oder settings-export.json hier einfügen" });
     area.value = importText;
     area.addEventListener("input", () => {
@@ -331,7 +406,7 @@
       post("adminImport", { text: fromFolder ? "" : importText, apply });
     };
 
-    view.append(
+    body.append(
       el("p", { class: "efb-field__help", text: "Übernimmt Einstellungen aus alten config-Dateien von ignisTab oder ef_bridge und aus Exporten (efbridge export). Erst kommt eine Vorschau, übernommen wird erst nach „Übernehmen“. Liegen die Dateien im Ordner der Ressource, liest „Aus dem Ordner lesen“ sie direkt." }),
       area,
       el(
@@ -346,26 +421,26 @@
     if (!r) return view;
 
     if (r.found === 0) {
-      view.append(el("p", { class: "efb-field__error", text: "Nichts gefunden: weder eingefügter Text noch config-Dateien im Ordner." }));
+      body.append(el("p", { class: "efb-field__error" }, icon("alert"), el("span", { text: "Nichts gefunden: weder eingefügter Text noch config-Dateien im Ordner." })));
       return view;
     }
-    for (const problem of r.problems || []) view.append(el("p", { class: "efb-field__error", text: problem }));
-    for (const note of r.notes || []) view.append(el("p", { class: "efb-field__help", text: "Altes Format: " + note }));
+    for (const problem of r.problems || []) body.append(el("p", { class: "efb-field__error" }, icon("alert"), el("span", { text: problem })));
+    for (const note of r.notes || []) body.append(el("p", { class: "efb-field__help", text: "Altes Format: " + note }));
 
     if ((r.applied || []).length) {
-      view.append(el("p", { class: "efb-import__done", text: `${r.applied.length} Einstellung(en) übernommen.` + (r.restart ? " Einiges davon gilt nach restart ef_bridge." : "") }));
+      body.append(el("p", { class: "efb-import__done", text: `${r.applied.length} Einstellung(en) übernommen.` + (r.restart ? " Einiges davon gilt nach restart ef_bridge." : "") }));
     } else if ((r.preview || []).length) {
       const table = el("table", { class: "efb-import__table" }, el("thead", {}, el("tr", {}, el("th", { text: "Einstellung" }), el("th", { text: "jetzt" }), el("th", { text: "danach" }))));
-      const body = el("tbody");
+      const rows = el("tbody");
       for (const item of r.preview) {
-        body.append(el("tr", {}, el("td", {}, el("span", { text: `${item.group} › ${item.label}` })), el("td", { text: item.from }), el("td", { text: item.to })));
+        rows.append(el("tr", {}, el("td", {}, el("span", { text: `${item.group} › ${item.label}` })), el("td", { text: item.from }), el("td", { text: item.to })));
       }
-      table.append(body);
-      view.append(table, el("div", { class: "efb-card__actions" }, el("button", { type: "button", class: "efb-btn efb-btn--primary", text: `${r.preview.length} übernehmen`, onclick: () => send(true, importText === "") })));
+      table.append(rows);
+      body.append(table, el("div", { class: "efb-card__actions" }, el("button", { type: "button", class: "efb-btn efb-btn--primary", text: `${r.preview.length} übernehmen`, onclick: () => send(true, importText === "") })));
     } else {
-      view.append(el("p", { class: "efb-field__help", text: "Alles schon so eingestellt, es gibt nichts zu übernehmen." }));
+      body.append(el("p", { class: "efb-field__help", text: "Alles schon so eingestellt, es gibt nichts zu übernehmen." }));
     }
-    for (const err of r.errors || []) view.append(el("p", { class: "efb-field__error", text: `${err.label}: ${err.message}` }));
+    for (const err of r.errors || []) body.append(el("p", { class: "efb-field__error" }, icon("alert"), el("span", { text: `${err.label}: ${err.message}` })));
     return view;
   }
 
@@ -378,14 +453,28 @@
     render();
   }
 
+  function renderHeader() {
+    const lex = status.lex || {};
+    $("efbVersion").textContent = status.version ? "Version " + status.version : "";
+    $("efbVersion").hidden = !status.version;
+    $("efbChips").replaceChildren(
+      chip(status.ignisKeySet, "ignis", "ignis ohne Schlüssel"),
+      chip(lex.enabled && lex.keySet, "Lex", lex.enabled ? "Lex ohne Schlüssel" : "Lex aus", !lex.enabled),
+      chip(status.emd, "EMD-Sync", "EMD-Sync aus", true),
+      chip(status.database, "Datenbank", "keine Datenbank"),
+    );
+  }
+
   function renderFooter() {
     const n = pending();
     $("efbPending").textContent = n === 0 ? "Keine ungespeicherten Änderungen" : n === 1 ? "1 ungespeicherte Änderung" : `${n} ungespeicherte Änderungen`;
+    $("efbPending").classList.toggle("is-dirty", n > 0);
     $("efbSave").disabled = n === 0;
     $("efbDiscard").disabled = n === 0;
   }
 
   function render() {
+    renderHeader();
     renderNav();
     renderContent();
     renderFooter();
@@ -393,7 +482,7 @@
 
   function toast(message, ok) {
     const box = $("efbToast");
-    box.textContent = message;
+    box.replaceChildren(icon(ok ? "check" : "alert"), el("span", { text: message }));
     box.className = "efb-toast " + (ok ? "efb-toast--ok" : "efb-toast--bad");
     box.hidden = false;
     clearTimeout(toast.timer);
@@ -412,7 +501,6 @@
     resets = new Set();
     errors = {};
     if (!groups().includes(current)) current = STATUS_GROUP;
-    $("efbVersion").textContent = status.version ? "Version " + status.version : "";
     $("adminPanel").hidden = false;
     render();
   }
@@ -453,11 +541,14 @@
   function result(data) {
     status = data.status || status;
     toast(data.message || (data.ok ? "Erledigt." : "Fehlgeschlagen."), data.ok);
+    renderHeader();
     if (current === STATUS_GROUP) renderContent();
   }
 
   function init() {
     if (!$("adminPanel")) return;
+    $("efbClose").replaceChildren(icon("close"));
+    $("efbRefresh").replaceChildren(icon("refresh"), el("span", { text: "Neu laden" }));
     $("efbClose").addEventListener("click", close);
     $("efbSave").addEventListener("click", save);
     $("efbDiscard").addEventListener("click", () => {

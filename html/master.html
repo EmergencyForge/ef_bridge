@@ -81,8 +81,12 @@
     <div class="efb-admin" id="adminPanel" hidden>
         <div class="efb-panel" role="dialog" aria-modal="true" aria-labelledby="efbTitle">
             <header class="efb-header">
-                <h1 class="efb-header__title" id="efbTitle">ef_bridge</h1>
-                <span class="efb-header__meta" id="efbVersion"></span>
+                <div class="efb-brand"><img src="img/ef-mark.png" alt=""></div>
+                <div class="efb-header__text">
+                    <h1 class="efb-header__title" id="efbTitle">ef_bridge</h1>
+                    <div class="efb-header__meta"><span>Einstellungen</span><span id="efbVersion" hidden></span></div>
+                </div>
+                <div class="efb-header__chips" id="efbChips"></div>
                 <span class="efb-header__spacer"></span>
                 <button type="button" class="efb-btn efb-btn--ghost" id="efbRefresh">Neu laden</button>
                 <button type="button" class="efb-btn efb-btn--ghost efb-btn--icon" id="efbClose" aria-label="Schließen (ESC)">×</button>
