@@ -58,6 +58,8 @@ files {
 
 data_file 'DLC_ITYP_REQUEST' 'stream/notfpad.ytyp'
 data_file 'DLC_ITYP_REQUEST' 'stream/firetab.ytyp'
+data_file 'DLC_ITYP_REQUEST' 'stream/notfpad_dui.ytyp'
+data_file 'DLC_ITYP_REQUEST' 'stream/firetab_dui.ytyp'
 
 escrow_ignore {
     'shared/*.lua',
