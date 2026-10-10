@@ -124,6 +124,7 @@ Die Namen sind die, die `efbridge get/set` versteht. Im Panel stehen sie in den 
 | `RequireItem` | Tablet nur mit Gegenstand im Inventar | aus |
 | `RequiredItem` | Name des Gegenstands | `tablet` |
 | `UseProp` | Tablet als Gegenstand in der Hand zeigen | an |
+| `Display` | Darstellung: Fenster (`window`) oder in der Hand auf dem Tablet-Modell mit Nahansicht (`hand`). Tippen in der Hand braucht ignis 2026.1.2 oder neuer. | `window` |
 | `Path` | Seite in ignis, die das Tablet öffnet | `enotf/overview.php` / `einsatz/list.php` |
 | `Command` | Chatbefehl zum Öffnen (nach Neustart) | `enotf` / `firetab` |
 | `OpenKey` | Standardtaste, leer heißt keine Taste vorbelegt (nach Neustart) | `F9` / leer |

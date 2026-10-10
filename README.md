@@ -67,6 +67,14 @@ exports.ef_bridge:LexFullSync()
 
 Schlüssel und Adresse zeigt Lex unter Einstellungen › FiveM-Abgleich, eingetragen werden sie im Panel unter Lex.
 
+## Tablet in der Hand
+
+Pro Tablet lässt sich im Panel unter „Darstellung“ wählen, ob es als Fenster (Standard) oder in der Hand erscheint. In der Hand zeigt das Tablet-Modell die Seite auf seinem Bildschirm, die Kamera fährt in eine Nahansicht. Befehle, Tasten, Berechtigungen, Tablet-Login und Charakter-Zuordnung bleiben wie beim Fenster. Andere Spieler sehen das Tablet mit Sperrbild, nie seinen Inhalt.
+
+- Tippen braucht ignis 2026.1.2 oder neuer, mit älteren Versionen geht nur Klicken.
+- Bildschirmdaten gibt es für die mitgelieferten Modelle `notfpad` und `firetab`. Mit einem anderen Modell öffnet das Tablet als Fenster.
+- Konsole: `efbridge set Tablets.eNOTF.Display hand` (oder `window`).
+
 ## Tablet-Login
 
 Der Discord-Login von ignis funktioniert im Spielbrowser nicht. Der Tablet-Login meldet Spieler deshalb über die Discord-ID an, die der FiveM-Server von ihnen kennt:
@@ -92,4 +100,5 @@ Die Prüfskripte laufen ohne FiveM, aus dem Repo-Root:
 lua tests/tablet_login_check.lua   # Lua 5.4: Tablet-Login, Identify, Abrechnung, Client
 lua tests/bridge_check.lua         # Lua 5.4: Einstellungen, Import, Admin-Panel, Lex-Abgleich
 node tests/nui_check.js            # NUI (master.js und die Tablet-Skripte)
+lua tests/dui_check.lua            # Lua 5.4: Tablet in der Hand (Rechnung, DUI, Ablauf)
 ```
