@@ -117,6 +117,7 @@ window.addEventListener("message", function (event) {
           typeof window.openFireTablet === "function"
         ) {
           window.openFireTablet(charData, url);
+          if (data.hidden) hideContainer("firetabContainer");
         } else {
           if (DEBUG)
             console.error("[Master] openFireTablet function not found!");
@@ -126,6 +127,7 @@ window.addEventListener("message", function (event) {
       showTablet("enotf");
       if (window.openTablet && typeof window.openTablet === "function") {
         window.openTablet(charData, url);
+        if (data.hidden) hideContainer("tabletContainer");
       }
     }
   }
@@ -147,6 +149,14 @@ window.addEventListener("message", function (event) {
   else if (data.type === "tabletLogin") {
     tabletLogin(data.tabletType, data.url);
   }
+
+  else if (data.type === "blankTabletFrame") {
+    blankFrame(data.tabletType);
+  }
+
+  else if (data.type === "revealTablet") {
+    revealTablet(data.tabletType, data.url);
+  }
 });
 
 // Game messages (openTablet, tabletLogin, ...) come from the game client.
@@ -163,6 +173,38 @@ function fromTabletFrame(event) {
     if (frames.includes(w)) return true;
   }
   return false;
+}
+
+// ==========================================
+// TABLET IN HAND
+// ==========================================
+
+// The frame keeps doing the session work (tablet login, character
+// identification) while the window stays hidden: the page shows in a DUI
+// on the tablet model instead. The cursor stays, the player aims with it.
+function hideContainer(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = "none";
+}
+
+function frameOf(tabletType) {
+  return (tabletType + "").toLowerCase() === "firetab" ? "firetabScreen" : "tabletScreen";
+}
+
+// The DUI runs the page now; blank the frame so it doesn't run twice.
+function blankFrame(tabletType) {
+  const frame = document.getElementById(frameOf(tabletType));
+  if (frame) frame.src = "about:blank";
+}
+
+// The DUI didn't come up: show the window after all. The frame may be
+// blanked already, then it loads the page again.
+function revealTablet(tabletType, url) {
+  const id = (tabletType + "").toLowerCase() === "firetab" ? "firetabContainer" : "tabletContainer";
+  const el = document.getElementById(id);
+  if (el) el.style.display = "flex";
+  const frame = document.getElementById(frameOf(tabletType));
+  if (frame && frame.src === "about:blank" && url) frame.src = url;
 }
 
 // ==========================================

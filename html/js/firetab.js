@@ -84,7 +84,7 @@ function openFireTablet(charData, url) {
   }
 
   // reopening with content still loaded: just show it again
-  if (tabletScreen && tabletScreen.src && tabletScreen.src !== "") {
+  if (tabletScreen && tabletScreen.src && tabletScreen.src !== "" && tabletScreen.src !== "about:blank") {
     if (tabletScreen.src.toLowerCase().startsWith("http://")) {
       tabletScreen.src = tabletScreen.src.replace(/^http:\/\//i, "https://");
     }
