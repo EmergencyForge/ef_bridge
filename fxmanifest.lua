@@ -48,7 +48,9 @@ files {
     'html/js/script.js',
     'html/js/firetab.js',
     'html/js/master.js',
-    'html/js/admin.js'
+    'html/js/admin.js',
+    'html/fonts/*.woff2',
+    'html/img/ef-mark.png'
 }
 
 data_file 'DLC_ITYP_REQUEST' 'stream/notfpad.ytyp'
