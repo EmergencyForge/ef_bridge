@@ -36,8 +36,9 @@
   window.addEventListener("keydown", (e) => {
     if (!active) return;
     e.preventDefault();
+    // AltGr sets ctrl and alt together; ignis drops keys with ctrl set
     if (e.key === "Escape") closeTablet();
-    else post("duiInput", { kind: "key", key: e.key, ctrl: e.ctrlKey, shift: e.shiftKey });
+    else post("duiInput", { kind: "key", key: e.key, ctrl: e.ctrlKey && !e.getModifierState("AltGraph"), shift: e.shiftKey });
   });
   window.addEventListener("contextmenu", (e) => {
     if (active) e.preventDefault();

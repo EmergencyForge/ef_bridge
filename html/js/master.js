@@ -109,6 +109,8 @@ window.addEventListener("message", function (event) {
 
     if (normalized === "firetab") {
       showTablet("firetab");
+      // firetab.js already showed the window from its own listener
+      if (data.hidden) hideContainer("firetabContainer");
 
       // give the DOM a moment before firetab.js touches the elements
       setTimeout(() => {
@@ -226,7 +228,8 @@ function tabletLogin(tabletType, loginUrl) {
   frame.addEventListener(
     "load",
     function () {
-      if (target) frame.src = target;
+      // a blank from the DUI may have stopped the login: keep the frame empty
+      if (target && frame.src !== "about:blank") frame.src = target;
     },
     { once: true },
   );

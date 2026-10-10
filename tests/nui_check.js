@@ -1,6 +1,6 @@
-// Loads the NUI scripts (firetab.js, script.js, master.js, same order as
-// master.html) with a fake DOM and checks the tablet login message and
-// the session relay.
+// Loads the NUI scripts (firetab.js, script.js, master.js, dui.js; same
+// order as master.html) with a fake DOM and checks the tablet login
+// message, the session relay, tablets in hand and the input layer.
 //
 //   node tests/nui_check.js
 const fs = require("fs");
@@ -44,10 +44,12 @@ function makeFrame(src, page) {
   });
 }
 
-function load() {
+// deferTimers: queue setTimeout callbacks until runTimers() is called
+function load({ deferTimers = false } = {}) {
   const listeners = [];
   const logged = [];
   const fetched = [];
+  const timers = [];
   const ctx = {
     console: {
       log: (...a) => logged.push(a),
@@ -59,7 +61,7 @@ function load() {
       fetched.push({ url, body: opts && opts.body });
       return Promise.resolve();
     },
-    setTimeout: (fn) => fn(),
+    setTimeout: (fn) => (deferTimers ? timers.push(fn) : fn()),
     parent: root,
   };
   ctx.window = ctx;
@@ -88,7 +90,10 @@ function load() {
   const send = (data, source = root) =>
     listeners.forEach((fn) => fn({ data, source }));
   const fire = (name, event) => (byName[name] || []).forEach((fn) => fn(event));
-  return { ctx, frames, elements, logged, fetched, send, fire };
+  const runTimers = () => {
+    while (timers.length) timers.shift()();
+  };
+  return { ctx, frames, elements, logged, fetched, send, fire, runTimers };
 }
 
 let failed = 0;
@@ -168,10 +173,29 @@ for (const type of ["ignis_session", "intraRP_session"]) {
   check("window after a blanked frame loads the page again", frames.tabletScreen.src === url);
 }
 
+// firetab.js shows its window synchronously, master.js must hide it before
+// the timer runs, or the window paints for a frame
+{
+  const { elements, send, runTimers } = load({ deferTimers: true });
+  send({ type: "openTablet", tabletType: "FireTab", url: "https://ignis.test/einsatz/list.php", characterData: { firstName: "A", lastName: "B" }, hidden: true });
+  check("hidden FireTab stays hidden before the timers run", elements.firetabContainer.style.display === "none");
+  runTimers();
+  check("hidden FireTab stays hidden after the timers run", elements.firetabContainer.style.display === "none");
+}
+
+// a blank while the login link still loads must not bring the page back
+{
+  const { frames, send } = load();
+  send({ type: "tabletLogin", tabletType: "eNOTF", url: loginUrl });
+  send({ type: "blankTabletFrame", tabletType: "eNOTF" });
+  frames.tabletScreen.fireLoad();
+  check("blank survives a pending login", frames.tabletScreen.src === "about:blank");
+}
+
 // input layer
 {
   const { frames, fetched, send, fire } = load();
-  const key = (k) => ({ key: k, ctrlKey: false, shiftKey: false, preventDefault() {} });
+  const key = (k, extra = {}) => ({ key: k, ctrlKey: false, shiftKey: false, getModifierState: () => false, preventDefault() {}, ...extra });
   fire("keydown", key("a"));
   check("no input while inactive", fetched.length === 0);
   send({ type: "duiInput", active: true }, frames.tabletScreen.contentWindow);
@@ -180,10 +204,15 @@ for (const type of ["ignis_session", "intraRP_session"]) {
   send({ type: "duiInput", active: true });
   fire("keydown", key("a"));
   fire("mousedown", { button: 2 });
+  // AltGr on a German layout sets ctrl and alt; ignis drops keys with ctrl
+  fire("keydown", key("@", { ctrlKey: true, getModifierState: (m) => m === "AltGraph" }));
+  fire("keydown", key("c", { ctrlKey: true }));
   fire("keydown", key("Escape"));
   const input = fetched.filter((c) => c.url.endsWith("/duiInput")).map((c) => JSON.parse(c.body));
   check("key forwarded", input.some((b) => b.kind === "key" && b.key === "a"));
   check("right click forwarded", input.some((b) => b.kind === "down" && b.button === "right"));
+  check("AltGr character goes without ctrl", input.some((b) => b.kind === "key" && b.key === "@" && b.ctrl === false));
+  check("ctrl shortcut keeps ctrl", input.some((b) => b.kind === "key" && b.key === "c" && b.ctrl === true));
   check("ESC closes the tablet", fetched.some((c) => c.url.endsWith("/closeTablet")));
 }
 
