@@ -45,7 +45,7 @@ Config = {
             Prop = {
                 model = 'firetab',
                 bone = 18905,
-                offset = { x = 0.1240, y = 0.0450, z = 0.1550, xRot = 18.0, yRot = -186.0, zRot = 58.3 }
+                offset = { x = 0.1188, y = 0.0535, z = 0.1545, xRot = 18.0, yRot = -186.0, zRot = 58.3 }
             }
         }
     },
