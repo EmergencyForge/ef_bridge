@@ -55,5 +55,137 @@ do
     check("degenerate quad gives nil", DuiScreen.UV({ { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 } }, 0.5, 0.5) == nil)
 end
 
+-- natives the controller and client/main.lua use, recorded by name
+local calls, timers = {}, {}
+local now, duiReady, cursor = 1000, false, { 960, 540 }
+local nuiCallbacks, handlers, nuiMessages = {}, {}, {}
+local function record(name, ret)
+    _G[name] = function(...)
+        calls[#calls + 1] = { name = name, args = table.pack(...) }
+        if type(ret) == 'function' then return ret(...) end
+        return ret
+    end
+end
+local function called(name)
+    local out = {}
+    for _, c in ipairs(calls) do if c.name == name then out[#out + 1] = c.args end end
+    return out
+end
+local function reset() calls, timers, nuiMessages = {}, {}, {} end
+local function nui(kind)
+    for _, m in ipairs(nuiMessages) do if m.type == kind then return m end end
+end
+
+for _, name in ipairs({
+    'RequestModel', 'Wait', 'SetModelAsNoLongerNeeded', 'AttachEntityToEntity',
+    'SetCamFov', 'HardAttachCamToEntity', 'SetCamNearClip', 'RenderScriptCams',
+    'DestroyCam', 'CreateRuntimeTextureFromDuiHandle', 'AddReplaceTexture',
+    'RemoveReplaceTexture', 'DestroyDui', 'DeleteEntity', 'SetEntityLocallyInvisible',
+    'HideHudAndRadarThisFrame', 'DrawSprite', 'SendDuiMouseMove', 'SetDuiUrl',
+    'SendDuiMouseDown', 'SendDuiMouseUp', 'SendDuiMouseWheel', 'SendDuiMessage',
+}) do record(name, nil) end
+record('HasModelLoaded', true)
+record('GetHashKey', function(name) return name end)
+record('PlayerPedId', 'ped')
+record('GetEntityCoords', { x = 0.0, y = 0.0, z = 0.0 })
+record('GetPedBoneIndex', 1)
+record('CreateObject', function(model, _, _, _, net) return (net and 'net:' or 'local:') .. model end)
+record('CreateCam', 'cam')
+record('CreateDui', 'dui')
+record('IsDuiAvailable', function() return duiReady end)
+record('CreateRuntimeTxd', 'txd')
+record('GetDuiHandle', 'handle')
+record('DoesEntityExist', true)
+record('GetActiveScreenResolution', function() return 1920, 1080 end)
+record('GetNuiCursorPosition', function() return cursor[1], cursor[2] end)
+function GetGameTimer() return now end
+function SetTimeout(ms, fn) timers[#timers + 1] = { ms = ms, fn = fn } end
+function SendNUIMessage(msg) nuiMessages[#nuiMessages + 1] = msg end
+function RegisterNUICallback(name, fn) nuiCallbacks[name] = fn end
+json = { encode = function(t) return string.format('{"type":"%s","key":"%s"}', t.type, tostring(t.key)) end }
+
+dofile(root .. "shared/defaults.lua")
+dofile(root .. "client/dui.lua")
+
+-- controller on its own
+do
+    reset()
+    local failedWith = nil
+    DuiTablet.Begin('eNOTF', 'https://ignis.test/enotf/', false, 'net:notfpad', function() failedWith = true end)
+    local created = called('CreateObject')
+    check("local _dui prop, not networked", #created == 1 and created[1][1] == 'notfpad_dui' and created[1][5] == false)
+    local cam = called('HardAttachCamToEntity')[1]
+    check("camera hard attached with yaw 90", cam and cam[2] == 'local:notfpad_dui' and cam[5] == 90.0)
+    check("camera rotation and offsets are floats", cam and math.type(cam[3]) == 'float' and math.type(cam[4]) == 'float'
+        and math.type(cam[6]) == 'float' and math.type(cam[7]) == 'float' and math.type(cam[8]) == 'float')
+    check("near clip at 0.9 of the distance", math.abs(called('SetCamNearClip')[1][2] - 0.162) < 1e-9)
+    check("input layer switched on", nui('duiInput') and nui('duiInput').active == true)
+    check("two timers: session wait and frame blank", #timers == 2 and timers[1].ms == 4000 and timers[2].ms == 10000)
+    check("no DUI before the session", #called('CreateDui') == 0)
+
+    DuiTablet.OnSession()
+    local dui = called('CreateDui')[1]
+    check("DUI 1440 wide at the display's aspect", dui and dui[1] == 'https://ignis.test/enotf/' and dui[2] == 1440 and dui[3] == 783)
+    check("frame blanked after the session (no login pending)", nui('blankTabletFrame') ~= nil)
+
+    DuiTablet.Frame()
+    check("networked prop hidden locally", called('SetEntityLocallyInvisible')[1][1] == 'net:notfpad')
+    check("no texture while the DUI loads", #called('AddReplaceTexture') == 0)
+    duiReady = true
+    DuiTablet.Frame()
+    local rep = called('AddReplaceTexture')[1]
+    check("texture replaced on the _dui model", rep and rep[1] == 'notfpad_dui' and rep[2] == 'notfpad_screen' and rep[3] == 'ef_bridge_dui')
+    check("no sprite during the camera ease", #called('DrawSprite') == 0)
+    now = now + 700
+    DuiTablet.Frame()
+    local sprite = called('DrawSprite')[1]
+    check("sprite centred over the display", sprite and math.abs(sprite[3] - 0.5) < 1e-3 and math.abs(sprite[4] - 0.5) < 1e-3)
+    check("sprite size from the camera", sprite and math.abs(sprite[5] - 0.750) < 0.002 and math.abs(sprite[6] - 0.726) < 0.002)
+    local move = called('SendDuiMouseMove')[1]
+    -- the painted display is not quite a rectangle, so the middle may sit a pixel off
+    check("cursor in the middle hits the DUI middle", move and math.abs(move[2] - 720) <= 1 and math.abs(move[3] - 391) <= 1)
+
+    nuiCallbacks['duiInput']({ kind = 'down', button = 'left' }, function() end)
+    nuiCallbacks['duiInput']({ kind = 'key', key = 'a', ctrl = false, shift = false }, function() end)
+    check("click goes to the DUI", called('SendDuiMouseDown')[1][2] == 'left')
+    check("key goes to the DUI as efKey", called('SendDuiMessage')[1][2]:find('"type":"efKey"', 1, true) ~= nil)
+
+    reset()
+    DuiTablet.Close()
+    check("close removes the replacement", #called('RemoveReplaceTexture') == 1)
+    check("close destroys DUI, camera and local prop", #called('DestroyDui') == 1 and #called('DestroyCam') == 1
+        and called('DeleteEntity')[1][1] == 'local:notfpad_dui')
+    check("close switches the input layer off", nui('duiInput') and nui('duiInput').active == false)
+    check("frame not blanked twice", nui('blankTabletFrame') == nil)
+    check("closed", not DuiTablet.IsOpen() and failedWith == nil)
+end
+
+-- closed before the session: late timers do nothing
+do
+    reset()
+    duiReady = false
+    DuiTablet.Begin('eNOTF', 'https://ignis.test/enotf/', false, nil, function() end)
+    local pending = timers
+    DuiTablet.Close()
+    reset()
+    for _, t in ipairs(pending) do t.fn() end
+    check("late timers start no DUI", #called('CreateDui') == 0)
+    check("late timers blank nothing", nui('blankTabletFrame') == nil)
+end
+
+-- DUI never ready: falls back, keeps the frame
+do
+    reset()
+    duiReady = false
+    local fellBack = false
+    DuiTablet.Begin('FireTab', 'https://ignis.test/einsatz/', true, nil, function() fellBack = true end)
+    DuiTablet.OnSession()
+    check("login pending: frame kept after the first session", nui('blankTabletFrame') == nil)
+    now = now + 6000
+    DuiTablet.Frame()
+    check("fallback after 5 s", fellBack and not DuiTablet.IsOpen())
+    check("fallback keeps the frame for the window", nui('blankTabletFrame') == nil)
+end
+
 realPrint(failed == 0 and "all checks passed" or (failed .. " check(s) failed"))
 os.exit(failed == 0 and 0 or 1)
