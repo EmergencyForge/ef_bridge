@@ -148,7 +148,11 @@ end
 local function moveMouse(q, rw, rh)
     local mx, my = GetNuiCursorPosition()
     local u, v = DuiScreen.UV(q, mx / rw, my / rh)
-    if not u or u < 0 or u > 1 or v < 0 or v > 1 then return end
+    if not u or u < 0 or u > 1 or v < 0 or v > 1 then
+        state.inside = false
+        return
+    end
+    state.inside = true
     local px, py = math.floor(u * state.w), math.floor(v * state.h)
     if px == state.lastX and py == state.lastY then return end
     state.lastX, state.lastY = px, py
@@ -157,6 +161,8 @@ end
 
 function DuiTablet.Frame()
     if not state then return end
+    -- the DUI can be ready while the model still loads, nothing to draw yet
+    if not state.cam then return end
     if state.netProp and DoesEntityExist(state.netProp) then
         SetEntityLocallyInvisible(state.netProp)
     end
@@ -194,12 +200,13 @@ RegisterNUICallback('duiInput', function(data, cb)
     cb('ok')
     if not state or not state.dui or type(data) ~= 'table' then return end
     local button = (data.button == 'right' or data.button == 'middle') and data.button or 'left'
+    -- presses and wheel only count on the display, a release always ends a press
     if data.kind == 'down' then
-        SendDuiMouseDown(state.dui, button)
+        if state.inside then SendDuiMouseDown(state.dui, button) end
     elseif data.kind == 'up' then
         SendDuiMouseUp(state.dui, button)
     elseif data.kind == 'wheel' then
-        SendDuiMouseWheel(state.dui, math.floor(-(tonumber(data.dy) or 0)), 0)
+        if state.inside then SendDuiMouseWheel(state.dui, math.floor(-(tonumber(data.dy) or 0)), 0) end
     elseif data.kind == 'key' and type(data.key) == 'string' then
         SendDuiMessage(state.dui, json.encode({ type = 'efKey', key = data.key, ctrl = data.ctrl == true, shift = data.shift == true }))
     end

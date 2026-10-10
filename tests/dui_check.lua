@@ -197,6 +197,55 @@ do
     record('Wait', nil)
 end
 
+-- the hidden frame reports while the model loads: Frame waits for the camera
+do
+    reset()
+    local recordedWait = Wait
+    local loads = 0
+    local frameOk = false
+    record('HasModelLoaded', function()
+        loads = loads + 1
+        return loads > 1
+    end)
+    Wait = function()
+        Wait = recordedWait
+        DuiTablet.OnSession()
+        duiReady = true
+        frameOk = pcall(DuiTablet.Frame)
+    end
+    local began = pcall(DuiTablet.Begin, 'eNOTF', 'https://ignis.test/enotf/', false, nil, function() end)
+    check("frame during the model load does not error", frameOk)
+    check("begin finishes after that frame", began and DuiTablet.IsOpen())
+    DuiTablet.Close()
+    record('HasModelLoaded', true)
+    record('Wait', nil)
+    duiReady = false
+end
+
+-- clicks and wheel off the display are dropped, a release still ends a press
+do
+    reset()
+    duiReady = true
+    DuiTablet.Begin('eNOTF', 'https://ignis.test/enotf/', false, nil, function() end)
+    DuiTablet.OnSession()
+    DuiTablet.Frame()
+    now = now + 700
+    cursor[1], cursor[2] = 10, 10
+    DuiTablet.Frame()
+    nuiCallbacks['duiInput']({ kind = 'down', button = 'left' }, function() end)
+    nuiCallbacks['duiInput']({ kind = 'wheel', dy = 120 }, function() end)
+    nuiCallbacks['duiInput']({ kind = 'up', button = 'left' }, function() end)
+    check("click off the display is dropped", #called('SendDuiMouseDown') == 0)
+    check("wheel off the display is dropped", #called('SendDuiMouseWheel') == 0)
+    check("release off the display still goes through", #called('SendDuiMouseUp') == 1)
+    cursor[1], cursor[2] = 960, 540
+    DuiTablet.Frame()
+    nuiCallbacks['duiInput']({ kind = 'down', button = 'left' }, function() end)
+    check("click back on the display goes through", #called('SendDuiMouseDown') == 1)
+    DuiTablet.Close()
+    duiReady = false
+end
+
 -- DUI never ready: falls back, keeps the frame
 do
     reset()
