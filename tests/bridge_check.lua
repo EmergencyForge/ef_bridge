@@ -192,6 +192,14 @@ check("number from text", V(by['Lex.BatchSize'], '50') == 50)
 check("no fractions", V(by['EMDSync.HeartbeatInterval'], 1500.5) == nil)
 check("boolean must be boolean", V(by['Debug'], 'yes') == nil and V(by['Debug'], false) == false)
 check("select must be an option", V(by['Framework'], 'vrp') == nil and V(by['Framework'], 'esx') == 'esx')
+for _, name in ipairs({ 'eNOTF', 'FireTab' }) do
+    local entry = by['Tablets.' .. name .. '.Display']
+    check(name .. ": Display setting exists", entry ~= nil and entry.type == 'select')
+    check(name .. ": Display defaults to window", Config.Tablets[name].Display == 'window')
+    check(name .. ": Display takes hand", entry and V(entry, 'hand') == 'hand')
+    check(name .. ": Display rejects other values", entry and V(entry, 'nui') == nil)
+    check(name .. ": Display has German labels", entry and entry.labels and entry.labels.window == 'Fenster' and entry.labels.hand == 'In der Hand')
+end
 local jobs = V(by['Tablets.eNOTF.AllowedJobs'], { ' ambulance ', '', 'doj' })
 check("list trims and drops empty lines", jobs and #jobs == 2 and jobs[1] == 'ambulance')
 check("list rejects odd characters", V(by['Tablets.eNOTF.AllowedJobs'], { 'a b' }) == nil)

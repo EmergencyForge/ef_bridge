@@ -37,6 +37,7 @@ local function SchemaForPanel()
         list[#list + 1] = {
             key = entry.key, scope = entry.scope, type = entry.type, group = entry.group,
             label = entry.label, help = entry.help or false, options = entry.options or false,
+            labels = entry.labels or false,
             min = entry.min or false, max = entry.max or false,
             restart = entry.restart == true, optional = entry.optional == true,
             advanced = entry.advanced == true,

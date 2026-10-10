@@ -148,7 +148,7 @@
     if (entry.type === "select") {
       const select = el("select", { id, class: "efb-input" });
       for (const option of entry.options || []) {
-        const o = el("option", { value: option, text: option });
+        const o = el("option", { value: option, text: (entry.labels && entry.labels[option]) || option });
         if (option === value) o.selected = true;
         select.append(o);
       }
