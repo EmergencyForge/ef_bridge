@@ -20,11 +20,12 @@
     if (fromTabletFrame(e)) return;
     active = e.data.active === true;
   });
+  // back/forward (often push-to-talk) have no entry and must not click
   window.addEventListener("mousedown", (e) => {
-    if (active) post("duiInput", { kind: "down", button: buttons[e.button] || "left" });
+    if (active && buttons[e.button]) post("duiInput", { kind: "down", button: buttons[e.button] });
   });
   window.addEventListener("mouseup", (e) => {
-    if (active) post("duiInput", { kind: "up", button: buttons[e.button] || "left" });
+    if (active && buttons[e.button]) post("duiInput", { kind: "up", button: buttons[e.button] });
   });
   window.addEventListener(
     "wheel",

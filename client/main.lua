@@ -359,18 +359,19 @@ function OpenTablet(tabletType)
     end
 
     local loginPending = Config.Ignis.TabletLogin and not tabletLoginRequested
+    -- before Begin, which waits for the model
+    if loginPending then
+        tabletLoginRequested = true
+        TriggerServerEvent('ef_bridge:requestTabletLogin', tabletType)
+    end
+
     if hand then
-        DuiTablet.Begin(tabletType, url, loginPending, tabletProp, function()
+        DuiTablet.Begin(tabletType, url, loginPending, config.UseProp and tabletProp or nil, function()
             -- without a networked prop the ped would hold nothing
             if not config.UseProp then StopTabletAnimation() end
             SendNUIMessage({ type = "revealTablet", tabletType = tabletType, url = url })
             ShowNotification("Das Tablet ließ sich nicht in der Hand öffnen und erscheint als Fenster.", "error")
         end)
-    end
-
-    if loginPending then
-        tabletLoginRequested = true
-        TriggerServerEvent('ef_bridge:requestTabletLogin', tabletType)
     end
 end
 
@@ -480,11 +481,17 @@ CreateThread(function()
                 CloseTablet()
             end
 
+            -- the close-up camera would hang on the ragdoll's hand
+            if DuiTablet.IsOpen() and IsEntityDead(ped) then
+                CloseTablet()
+            end
+
             if DuiTablet.IsOpen() then
                 DuiTablet.Frame()
             end
 
-            if (usesProp or DuiTablet.IsOpen()) and not IsEntityPlayingAnim(ped, tabletDict, tabletAnim, 3) then
+            -- not after a close above: a dead ped must not start the anim again
+            if isTabletOpen and (usesProp or DuiTablet.IsOpen()) and not IsEntityPlayingAnim(ped, tabletDict, tabletAnim, 3) then
                 PlayTabletAnimation()
             end
 

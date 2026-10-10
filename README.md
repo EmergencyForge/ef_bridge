@@ -69,7 +69,7 @@ Schlüssel und Adresse zeigt Lex unter Einstellungen › FiveM-Abgleich, eingetr
 
 ## Tablet in der Hand
 
-Pro Tablet lässt sich im Panel unter „Darstellung“ wählen, ob es als Fenster (Standard) oder in der Hand erscheint. In der Hand zeigt das Tablet-Modell die Seite auf seinem Bildschirm, die Kamera fährt in eine Nahansicht. Befehle, Tasten, Berechtigungen, Tablet-Login und Charakter-Zuordnung bleiben wie beim Fenster. Andere Spieler sehen das Tablet mit Sperrbild, nie seinen Inhalt.
+Pro Tablet lässt sich im Panel unter „Darstellung“ wählen, ob es als Fenster (Standard) oder in der Hand erscheint. In der Hand zeigt das Tablet-Modell die Seite auf seinem Bildschirm, die Kamera fährt in eine Nahansicht. Befehle, Tasten, Berechtigungen, Tablet-Login und Charakter-Zuordnung bleiben wie beim Fenster. Andere Spieler sehen nie den Inhalt. Ist „Tablet in der Hand zeigen“ an, sehen sie das Tablet mit Sperrbild.
 
 - Tippen braucht ignis 2026.1.2 oder neuer, mit älteren Versionen geht nur Klicken.
 - Bildschirmdaten gibt es für die mitgelieferten Modelle `notfpad` und `firetab`. Mit einem anderen Modell öffnet das Tablet als Fenster.

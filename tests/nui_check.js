@@ -183,6 +183,21 @@ for (const type of ["ignis_session", "intraRP_session"]) {
   check("hidden FireTab stays hidden after the timers run", elements.firetabContainer.style.display === "none");
 }
 
+// a frame that still holds a page (earlier window open, fallback) only shows
+// it again; a hidden open must load it fresh so the page reports its session
+for (const [type, frameId, url] of [
+  ["eNOTF", "tabletScreen", "https://ignis.test/enotf/overview.php"],
+  ["FireTab", "firetabScreen", "https://ignis.test/einsatz/list.php"],
+]) {
+  const { frames, send } = load();
+  const frame = frames[frameId];
+  send({ type: "openTablet", tabletType: type, url, characterData: { firstName: "A", lastName: "B" } });
+  check(`window ${type} open keeps the loaded page`, frame.history.length === 0);
+  send({ type: "closeTablet", tabletType: type });
+  send({ type: "openTablet", tabletType: type, url, characterData: { firstName: "A", lastName: "B" }, hidden: true });
+  check(`hidden ${type} open loads the page fresh`, frame.history.length === 1 && frame.src === url);
+}
+
 // a blank while the login link still loads must not bring the page back
 {
   const { frames, send } = load();
@@ -214,6 +229,17 @@ for (const type of ["ignis_session", "intraRP_session"]) {
   check("AltGr character goes without ctrl", input.some((b) => b.kind === "key" && b.key === "@" && b.ctrl === false));
   check("ctrl shortcut keeps ctrl", input.some((b) => b.kind === "key" && b.key === "c" && b.ctrl === true));
   check("ESC closes the tablet", fetched.some((c) => c.url.endsWith("/closeTablet")));
+
+  // back/forward buttons are often push-to-talk, they must not turn into clicks
+  const posts = () => fetched.filter((c) => c.url.endsWith("/duiInput")).length;
+  const before = posts();
+  for (const button of [3, 4]) {
+    fire("mousedown", { button });
+    fire("mouseup", { button });
+  }
+  check("side mouse buttons post nothing", posts() === before);
+  fire("mouseup", { button: 0 });
+  check("left release still forwarded", posts() === before + 1);
 }
 
 console.log(failed === 0 ? "all checks passed" : `${failed} check(s) failed`);

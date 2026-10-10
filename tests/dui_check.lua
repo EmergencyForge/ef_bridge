@@ -85,6 +85,7 @@ for _, name in ipairs({
     'SendDuiMouseDown', 'SendDuiMouseUp', 'SendDuiMouseWheel', 'SendDuiMessage',
 }) do record(name, nil) end
 record('HasModelLoaded', true)
+record('IsModelInCdimage', true)
 record('GetHashKey', function(name) return name end)
 record('PlayerPedId', 'ped')
 record('GetEntityCoords', { x = 0.0, y = 0.0, z = 0.0 })
@@ -222,6 +223,41 @@ do
     duiReady = false
 end
 
+-- the input layer is on while the model loads, so ESC reaches the tablet
+do
+    reset()
+    local recordedWait = Wait
+    local loads = 0
+    local layerOn, objectsThen
+    record('HasModelLoaded', function()
+        loads = loads + 1
+        return loads > 1
+    end)
+    Wait = function()
+        Wait = recordedWait
+        layerOn = nui('duiInput') and nui('duiInput').active == true
+        objectsThen = #called('CreateObject')
+    end
+    DuiTablet.Begin('eNOTF', 'https://ignis.test/enotf/', false, nil, function() end)
+    check("input layer on while the model loads", layerOn == true and objectsThen == 0)
+    DuiTablet.Close()
+    record('HasModelLoaded', true)
+    record('Wait', nil)
+end
+
+-- a _dui model the game doesn't know: no waiting, straight to the fallback
+do
+    reset()
+    record('IsModelInCdimage', false)
+    local failedWith = false
+    DuiTablet.Begin('eNOTF', 'https://ignis.test/enotf/', false, nil, function() failedWith = true end)
+    check("missing _dui model: fallback called", failedWith)
+    check("missing _dui model: no prop, no camera", #called('CreateObject') == 0 and #called('CreateCam') == 0)
+    check("missing _dui model: input layer stays off", nui('duiInput') == nil)
+    check("missing _dui model: not open", not DuiTablet.IsOpen())
+    record('IsModelInCdimage', true)
+end
+
 -- clicks and wheel off the display are dropped, a release still ends a press
 do
     reset()
@@ -340,6 +376,28 @@ for _, args in ipairs(called('TriggerServerEvent')) do
 end
 check("hand + early login failure: character still identified", identified)
 check("hand + early login failure: frame blanked at the first report", nui('blankTabletFrame') ~= nil)
+CloseTablet()
+
+-- the login request doesn't wait for the _dui model
+loadClient('hand', true, nil, true)
+reset()
+local duiLoads, askedWhileLoading = 0, nil
+record('HasModelLoaded', function(model)
+    if model ~= 'notfpad_dui' then return true end
+    duiLoads = duiLoads + 1
+    return duiLoads > 1
+end)
+record('Wait', function()
+    if askedWhileLoading ~= nil then return end
+    askedWhileLoading = false
+    for _, args in ipairs(called('TriggerServerEvent')) do
+        if args[1] == 'ef_bridge:requestTabletLogin' then askedWhileLoading = true end
+    end
+end)
+OpenTablet('eNOTF')
+record('HasModelLoaded', true)
+record('Wait', nil)
+check("hand + login: request sent while the model loads", askedWhileLoading == true)
 CloseTablet()
 
 loadClient('hand', false)

@@ -129,7 +129,7 @@ Die Namen sind die, die `efbridge get/set` versteht. Im Panel stehen sie in den 
 | `Command` | Chatbefehl zum Öffnen (nach Neustart) | `enotf` / `firetab` |
 | `OpenKey` | Standardtaste, leer heißt keine Taste vorbelegt (nach Neustart) | `F9` / leer |
 
-Die Taste kann jeder Spieler unter **Einstellungen › Tastenbelegung › FiveM** selbst ändern. Geschlossen wird das Tablet mit ESC oder dem Kreuz.
+Die Taste kann jeder Spieler unter **Einstellungen › Tastenbelegung › FiveM** selbst ändern. Geschlossen wird das Tablet mit ESC, im Fenster auch mit dem Kreuz.
 
 Brauchst du `RequireItem`, musst du den Gegenstand selbst in deinem Inventar anlegen. ef_bridge bringt keinen mit.
 

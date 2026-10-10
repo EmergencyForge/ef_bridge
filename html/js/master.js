@@ -110,7 +110,10 @@ window.addEventListener("message", function (event) {
     if (normalized === "firetab") {
       showTablet("firetab");
       // firetab.js already showed the window from its own listener
-      if (data.hidden) hideContainer("firetabContainer");
+      if (data.hidden) {
+        hideContainer("firetabContainer");
+        loadFresh(tabletType, url);
+      }
 
       // give the DOM a moment before firetab.js touches the elements
       setTimeout(() => {
@@ -129,7 +132,10 @@ window.addEventListener("message", function (event) {
       showTablet("enotf");
       if (window.openTablet && typeof window.openTablet === "function") {
         window.openTablet(charData, url);
-        if (data.hidden) hideContainer("tabletContainer");
+        if (data.hidden) {
+          hideContainer("tabletContainer");
+          loadFresh(tabletType, url);
+        }
       }
     }
   }
@@ -191,6 +197,13 @@ function hideContainer(id) {
 
 function frameOf(tabletType) {
   return (tabletType + "").toLowerCase() === "firetab" ? "firetabScreen" : "tabletScreen";
+}
+
+// A frame that still holds a page (earlier window open, fallback) is only
+// shown again by the tablet scripts, so no session report would come.
+function loadFresh(tabletType, url) {
+  const frame = document.getElementById(frameOf(tabletType));
+  if (frame && url) frame.src = url;
 }
 
 // The DUI runs the page now; blank the frame so it doesn't run twice.

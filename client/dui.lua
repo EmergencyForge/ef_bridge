@@ -34,8 +34,7 @@ local function blankFrame()
     SendNUIMessage({ type = 'blankTabletFrame', tabletType = state.tabletType })
 end
 
-local function spawnProp(prop)
-    local model = GetHashKey(prop.model .. '_dui')
+local function spawnProp(prop, model)
     RequestModel(model)
     while not HasModelLoaded(model) do
         Wait(50)
@@ -78,20 +77,27 @@ end
 
 function DuiTablet.Begin(tabletType, url, loginPending, netProp, onFail)
     local prop = Config.Tablets[tabletType].Prop
+    local model = GetHashKey(prop.model .. '_dui')
+    -- a missing _dui model (partial update) falls back to the window
+    if not IsModelInCdimage(model) then
+        if onFail then onFail() end
+        return
+    end
     state = {
         tabletType = tabletType, url = url, model = prop.model, screen = DuiScreen.For(prop.model),
         netProp = netProp, loginPending = loginPending, onFail = onFail, sessions = 0,
     }
     local mine = state
+    -- on before the model loads, so ESC still closes the tablet meanwhile
+    SendNUIMessage({ type = 'duiInput', active = true })
     -- the tablet can close while the model loads
-    local entity = spawnProp(prop)
+    local entity = spawnProp(prop, model)
     if state ~= mine then
         DeleteEntity(entity)
         return
     end
     state.prop = entity
     startCamera()
-    SendNUIMessage({ type = 'duiInput', active = true })
     -- no session report (ignis slow or unreachable): show the page anyway
     SetTimeout(SESSION_WAIT_MS, function()
         if state == mine then startDui() end
