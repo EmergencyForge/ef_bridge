@@ -62,6 +62,9 @@ end
 -- the vertical fov, dist, the display size and the screen aspect.
 -- Projecting the corners from the prop instead uses its position from the
 -- frame before and wobbles while walking.
+-- Axes come from the display's edges, not n and roll, so the sprite
+-- stays upright and the cursor maps through the quad the player sees.
+-- notfpad is about 0.6 degrees off in the model, a few pixels at the edges.
 function DuiScreen.CloseUp(s, fov, aspect)
     local half = math.tan(math.rad(fov) / 2) * s.dist
     local center = DuiScreen.Center(s)
