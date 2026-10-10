@@ -316,11 +316,21 @@ function OpenTablet(tabletType)
         end
     end
 
+    -- "In der Hand" needs screen data for the prop model; a model the
+    -- server picked in the panel may have none
+    local hand = config.Display == 'hand'
+    if hand and not DuiTablet.Supports(config.Prop and config.Prop.model) then
+        print(("^3[ef_bridge]^7 %s: no screen data for the model %s, opening as a window"):format(tabletType, tostring(config.Prop and config.Prop.model)))
+        hand = false
+    end
+
     isTabletOpen = true
     currentTabletType = tabletType
 
     if config.UseProp then
         CreateTabletProp(tabletType)
+    end
+    if config.UseProp or hand then
         PlayTabletAnimation()
     end
 
@@ -333,14 +343,25 @@ function OpenTablet(tabletType)
         type = "openTablet",
         tabletType = tabletType,
         characterData = charData,
-        url = url
+        url = url,
+        hidden = hand
     })
 
     if Config.Debug then
         print("Tablet opened with URL:", url)
     end
 
-    if Config.Ignis.TabletLogin and not tabletLoginRequested then
+    local loginPending = Config.Ignis.TabletLogin and not tabletLoginRequested
+    if hand then
+        DuiTablet.Begin(tabletType, url, loginPending, tabletProp, function()
+            -- without a networked prop the ped would hold nothing
+            if not config.UseProp then StopTabletAnimation() end
+            SendNUIMessage({ type = "revealTablet", tabletType = tabletType, url = url })
+            ShowNotification("Das Tablet ließ sich nicht in der Hand öffnen und erscheint als Fenster.", "error")
+        end)
+    end
+
+    if loginPending then
         tabletLoginRequested = true
         TriggerServerEvent('ef_bridge:requestTabletLogin', tabletType)
     end
@@ -354,6 +375,7 @@ function CloseTablet()
     -- Flag closed before UI updates
     isTabletOpen = false
 
+    DuiTablet.Close()
     StopTabletAnimation()
     DeleteTabletProp()
 
@@ -386,6 +408,7 @@ end)
 -- so the web session can be tied to the ingame character.
 RegisterNUICallback('sessionIdentify', function(data, cb)
     if data and data.session_id then
+        DuiTablet.OnSession()
         if Config.Debug then
             -- shortened: the full ID would let anyone reading the log take over the session
             print("^2[ef_bridge]^7 Received PHP session_id: " .. tostring(data.session_id):sub(1, 8) .. "...")
@@ -430,6 +453,7 @@ AddEventHandler('ef_bridge:tabletLoginFailed', function(tabletType, message, ret
     if retry then
         tabletLoginRequested = false
     end
+    DuiTablet.OnLoginFailed()
     ShowNotification(message, "error")
 end)
 
@@ -449,7 +473,11 @@ CreateThread(function()
                 CloseTablet()
             end
 
-            if usesProp and not IsEntityPlayingAnim(ped, tabletDict, tabletAnim, 3) then
+            if DuiTablet.IsOpen() then
+                DuiTablet.Frame()
+            end
+
+            if (usesProp or DuiTablet.IsOpen()) and not IsEntityPlayingAnim(ped, tabletDict, tabletAnim, 3) then
                 PlayTabletAnimation()
             end
 
@@ -515,6 +543,7 @@ end)
 AddEventHandler('onResourceStop', function(resourceName)
     if GetCurrentResourceName() == resourceName then
         if isTabletOpen then
+            DuiTablet.Close()
             SetNuiFocus(false, false)
             SetNuiFocusKeepInput(false)
             StopTabletAnimation()

@@ -99,6 +99,8 @@ dofile(root .. "shared/defaults.lua")
 dofile(root .. "server/defaults.lua")
 dofile(root .. "shared/url.lua")
 dofile(root .. "shared/settings.lua")
+dofile(root .. "client/dui_screen.lua")
+dofile(root .. "client/dui.lua")
 Config.Ignis.BaseURL = "http://ignis.test/"
 ServerConfig.Ignis.APIKey = "secret-key"
 Config.Ignis.TabletLogin = true

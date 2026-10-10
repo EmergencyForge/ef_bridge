@@ -260,5 +260,112 @@ do
     check("fallback keeps the frame for the window", nui('blankTabletFrame') == nil)
 end
 
+-- client/main.lua drives the controller
+local printed, notified = {}, {}
+for _, name in ipairs({ 'RegisterCommand', 'RegisterKeyMapping', 'CreateThread', 'SetNuiFocus', 'SetNuiFocusKeepInput',
+    'RequestAnimDict', 'StopAnimTask', 'ClearPedSecondaryTask', 'ClearPedTasks', 'SetNotificationTextEntry',
+    'DrawNotification', 'RegisterNetEvent', 'TaskPlayAnim', 'TriggerServerEvent' }) do record(name, nil) end
+record('HasAnimDictLoaded', true)
+record('IsEntityPlayingAnim', false)
+function GetResourceState() return 'missing' end
+function AddTextComponentString(text) notified[#notified + 1] = text end
+function AddEventHandler(name, fn) handlers[name] = fn end
+dofile(root .. "shared/url.lua")
+dofile(root .. "shared/settings.lua")
+-- a fresh client with both tablets on; FrameworkName stays nil, so the
+-- default jobs list applies and "admin" is on it
+local function loadClient(display, useProp, model, tabletLogin)
+    dofile(root .. "shared/defaults.lua")
+    Config.Ignis.BaseURL = "https://ignis.test/"
+    Config.Ignis.TabletLogin = tabletLogin == true
+    for _, t in pairs(Config.Tablets) do
+        t.Enabled, t.Display, t.UseProp = true, display, useProp
+    end
+    Config.Tablets.eNOTF.Prop.model = model or 'notfpad'
+    dofile(root .. "client/main.lua")
+    handlers['ef_bridge:settings']({})
+    GetPlayerCharacterData = function() return { firstName = "Max", lastName = "Muster", cid = "C1", job = "admin" } end
+end
+local function opened()
+    for _, m in ipairs(nuiMessages) do if m.type == 'openTablet' then return m end end
+end
+local function session() nuiCallbacks['sessionIdentify']({ session_id = 'abc' }, function() end) end
+
+print = function(...) printed[#printed + 1] = table.concat({ ... }, " ") end
+
+loadClient('hand', true)
+reset()
+duiReady = true
+OpenTablet('eNOTF')
+check("hand: window stays hidden", opened() and opened().hidden == true)
+local objects = called('CreateObject')
+check("hand: networked and local prop", #objects == 2 and objects[1][5] == true and objects[2][1] == 'notfpad_dui')
+session()
+check("hand: session starts the DUI", #called('CreateDui') == 1)
+check("hand: frame blanked without a login", nui('blankTabletFrame') ~= nil)
+reset()
+CloseTablet()
+check("hand: close cleans up the DUI", #called('DestroyDui') == 1 and not DuiTablet.IsOpen())
+check("hand: close still tells the NUI", nui('closeTablet') ~= nil)
+
+loadClient('hand', true, nil, true)
+reset()
+OpenTablet('eNOTF')
+check("hand + login: login requested", called('TriggerServerEvent')[1][1] == 'ef_bridge:requestTabletLogin')
+session()
+check("hand + login: frame kept for the login", nui('blankTabletFrame') == nil)
+session() -- back from the login link
+check("hand + login: DUI reloads signed in", #called('SetDuiUrl') == 1 and called('SetDuiUrl')[1][2] == 'https://ignis.test/enotf/overview.php')
+check("hand + login: frame blanked after the login", nui('blankTabletFrame') ~= nil)
+CloseTablet()
+
+loadClient('hand', true, nil, true)
+reset()
+OpenTablet('eNOTF')
+session()
+handlers['ef_bridge:tabletLoginFailed']('eNOTF', 'kein Konto', false)
+check("hand + login failed: frame blanked", nui('blankTabletFrame') ~= nil)
+CloseTablet()
+
+loadClient('hand', false)
+reset()
+OpenTablet('eNOTF')
+local objects2 = called('CreateObject')
+check("hand without UseProp: only the local prop", #objects2 == 1 and objects2[1][1] == 'notfpad_dui')
+check("hand without UseProp: anim plays", #called('TaskPlayAnim') == 1)
+CloseTablet()
+
+loadClient('hand', true, 'prop_cs_tablet')
+reset()
+printed = {}
+OpenTablet('eNOTF')
+check("custom model: opens as a window", opened() and opened().hidden ~= true and not DuiTablet.IsOpen())
+local warned = false
+for _, line in ipairs(printed) do if line:find('prop_cs_tablet', 1, true) then warned = true end end
+check("custom model: warning in the console", warned)
+CloseTablet()
+
+loadClient('hand', false)
+reset()
+notified = {}
+duiReady = false
+OpenTablet('eNOTF')
+session()
+now = now + 6000
+DuiTablet.Frame()
+-- no login: the frame was blanked at the first report, the window needs the page back
+check("DUI fails: window revealed with the page", nui('revealTablet') and nui('revealTablet').url == 'https://ignis.test/enotf/overview.php')
+check("DUI fails: player told", #notified > 0)
+check("DUI fails without UseProp: no empty-handed anim", #called('StopAnimTask') == 1)
+CloseTablet()
+
+loadClient('window', true)
+reset()
+OpenTablet('eNOTF')
+check("window: unchanged", opened() and opened().hidden ~= true and #called('CreateDui') == 0)
+CloseTablet()
+
+print = realPrint
+
 realPrint(failed == 0 and "all checks passed" or (failed .. " check(s) failed"))
 os.exit(failed == 0 and 0 or 1)

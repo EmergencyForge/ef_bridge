@@ -19,6 +19,8 @@ shared_scripts {
 }
 
 client_scripts {
+    'client/dui_screen.lua',
+    'client/dui.lua',
     'client/main.lua',
     'client/admin.lua'
 }
@@ -49,6 +51,7 @@ files {
     'html/js/firetab.js',
     'html/js/master.js',
     'html/js/admin.js',
+    'html/js/dui.js',
     'html/fonts/*.woff2',
     'html/img/ef-mark.png'
 }
