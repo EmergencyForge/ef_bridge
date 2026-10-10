@@ -83,7 +83,13 @@ function DuiTablet.Begin(tabletType, url, loginPending, netProp, onFail)
         netProp = netProp, loginPending = loginPending, onFail = onFail, sessions = 0,
     }
     local mine = state
-    state.prop = spawnProp(prop)
+    -- the tablet can close while the model loads
+    local entity = spawnProp(prop)
+    if state ~= mine then
+        DeleteEntity(entity)
+        return
+    end
+    state.prop = entity
     startCamera()
     SendNUIMessage({ type = 'duiInput', active = true })
     -- no session report (ignis slow or unreachable): show the page anyway

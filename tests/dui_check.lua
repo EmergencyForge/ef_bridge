@@ -173,6 +173,30 @@ do
     check("late timers blank nothing", nui('blankTabletFrame') == nil)
 end
 
+-- tablet closed while its model loads: the late prop is dropped, nothing else starts
+do
+    reset()
+    local recordedWait = Wait
+    local loads = 0
+    record('HasModelLoaded', function()
+        loads = loads + 1
+        return loads > 1
+    end)
+    Wait = function()
+        Wait = recordedWait
+        DuiTablet.Close()
+    end
+    local ok = pcall(DuiTablet.Begin, 'eNOTF', 'https://ignis.test/enotf/', false, nil, function() end)
+    check("closing while the model loads does not error", ok)
+    local deleted = called('DeleteEntity')[1]
+    check("late prop is deleted", deleted and deleted[1] == 'local:notfpad_dui')
+    check("no camera started", #called('CreateCam') == 0)
+    check("no timers set", #timers == 0)
+    check("closed after the late load", not DuiTablet.IsOpen())
+    record('HasModelLoaded', true)
+    record('Wait', nil)
+end
+
 -- DUI never ready: falls back, keeps the frame
 do
     reset()
