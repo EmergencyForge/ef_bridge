@@ -334,6 +334,13 @@ function OpenTablet(tabletType)
         PlayTabletAnimation()
     end
 
+    -- closed while the prop or the anim loaded
+    if not isTabletOpen then
+        DeleteTabletProp()
+        StopTabletAnimation()
+        return
+    end
+
     SetNuiFocus(true, true)
     SetNuiFocusKeepInput(false)
 

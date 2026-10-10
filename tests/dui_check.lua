@@ -327,6 +327,21 @@ handlers['ef_bridge:tabletLoginFailed']('eNOTF', 'kein Konto', false)
 check("hand + login failed: frame blanked", nui('blankTabletFrame') ~= nil)
 CloseTablet()
 
+-- an immediate failure arrives before the page in the frame reports in
+loadClient('hand', true, nil, true)
+reset()
+OpenTablet('eNOTF')
+handlers['ef_bridge:tabletLoginFailed']('eNOTF', 'kein Konto', false)
+check("hand + early login failure: frame stays for the first report", nui('blankTabletFrame') == nil)
+session()
+local identified = false
+for _, args in ipairs(called('TriggerServerEvent')) do
+    if args[1] == 'ef_bridge:identifyCharacter' then identified = true end
+end
+check("hand + early login failure: character still identified", identified)
+check("hand + early login failure: frame blanked at the first report", nui('blankTabletFrame') ~= nil)
+CloseTablet()
+
 loadClient('hand', false)
 reset()
 OpenTablet('eNOTF')
@@ -364,6 +379,36 @@ reset()
 OpenTablet('eNOTF')
 check("window: unchanged", opened() and opened().hidden ~= true and #called('CreateDui') == 0)
 CloseTablet()
+
+-- closed while the prop model loads
+loadClient('hand', true)
+reset()
+local modelChecks, closedInWait = 0, false
+record('HasModelLoaded', function()
+    modelChecks = modelChecks + 1
+    return modelChecks > 1
+end)
+record('Wait', function()
+    if not closedInWait then
+        closedInWait = true
+        CloseTablet()
+    end
+end)
+OpenTablet('eNOTF')
+record('HasModelLoaded', true)
+record('Wait', nil)
+check("closed while loading: tablet never opens", opened() == nil and not DuiTablet.IsOpen())
+check("closed while loading: no camera or DUI", #called('CreateCam') == 0 and #called('CreateDui') == 0)
+local deleted = false
+for _, args in ipairs(called('DeleteEntity')) do
+    if args[1] == 'net:notfpad' then deleted = true end
+end
+check("closed while loading: late prop deleted", deleted)
+local focused = false
+for _, args in ipairs(called('SetNuiFocus')) do
+    if args[1] == true then focused = true end
+end
+check("closed while loading: no NUI focus taken", not focused)
 
 print = realPrint
 

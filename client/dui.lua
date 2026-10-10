@@ -116,7 +116,11 @@ function DuiTablet.OnSession()
 end
 
 function DuiTablet.OnLoginFailed()
-    if state then blankFrame() end
+    if not state then return end
+    -- an immediate failure comes before the frame's first report; blanking
+    -- now would drop the report that ties the character to the session
+    state.loginPending = false
+    if state.sessions >= 1 then blankFrame() end
 end
 
 function DuiTablet.Close(keepFrame)
