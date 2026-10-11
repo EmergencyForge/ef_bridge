@@ -107,6 +107,17 @@
             </main>
         </div>
         <div class="efb-toast" id="efbToast" role="status" hidden></div>
+        <!-- in-panel question; CEF shows window.confirm as a bare Windows dialog -->
+        <div class="efb-confirm" id="efbConfirm" hidden>
+            <div class="efb-confirm__dialog" role="alertdialog" aria-modal="true" aria-labelledby="efbConfirmTitle" aria-describedby="efbConfirmText">
+                <h2 class="efb-confirm__title" id="efbConfirmTitle"></h2>
+                <p class="efb-confirm__text" id="efbConfirmText"></p>
+                <div class="efb-confirm__actions">
+                    <button type="button" class="efb-btn efb-btn--ghost" id="efbConfirmCancel">Zurück</button>
+                    <button type="button" class="efb-btn efb-btn--danger" id="efbConfirmOk"></button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="js/firetab.js"></script>

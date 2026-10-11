@@ -578,14 +578,40 @@
     errors = {};
     if (!groups().includes(current)) current = STATUS_GROUP;
     applySidebar();
+    answer(false);
     $("adminPanel").hidden = false;
     render();
   }
 
+  // Asks before unsaved changes get lost. onYes runs for the destructive
+  // choice; Zurück, ESC or a click beside the dialog keep everything.
+  let onConfirm = null;
+
+  function confirmDiscard(okLabel, onYes) {
+    const n = pending();
+    if (n === 0) return onYes();
+    $("efbConfirmTitle").textContent = n === 1 ? "1 ungespeicherte Änderung" : n + " ungespeicherte Änderungen";
+    $("efbConfirmText").textContent = "Sie gehen verloren, wenn du jetzt weitermachst. Zum Behalten erst speichern.";
+    $("efbConfirmOk").textContent = okLabel;
+    onConfirm = onYes;
+    $("efbConfirm").hidden = false;
+    $("efbConfirmCancel").focus();
+  }
+
+  function answer(yes) {
+    const run = onConfirm;
+    onConfirm = null;
+    $("efbConfirm").hidden = true;
+    if (yes && run) run();
+  }
+
   function close() {
-    if (pending() > 0 && !window.confirm("Ungespeicherte Änderungen verwerfen?")) return;
-    $("adminPanel").hidden = true;
-    post("adminClose");
+    confirmDiscard("Verwerfen und schließen", () => {
+      changes = {};
+      resets = new Set();
+      $("adminPanel").hidden = true;
+      post("adminClose");
+    });
   }
 
   function save() {
@@ -635,14 +661,23 @@
       render();
     });
     $("efbRefresh").addEventListener("click", () => {
-      if (pending() > 0 && !window.confirm("Ungespeicherte Änderungen verwerfen und neu laden?")) return;
-      post("adminRefresh");
+      confirmDiscard("Verwerfen und neu laden", () => post("adminRefresh"));
+    });
+    $("efbConfirmOk").addEventListener("click", () => answer(true));
+    $("efbConfirmCancel").addEventListener("click", () => answer(false));
+    $("efbConfirm").addEventListener("click", (e) => {
+      if (e.target === $("efbConfirm")) answer(false);
     });
     $("efbToggle").addEventListener("click", toggleSidebar);
     window.matchMedia(NARROW).addEventListener("change", applySidebar);
     applySidebar();
     document.addEventListener("keydown", (e) => {
       if ($("adminPanel").hidden) return;
+      // the open question takes ESC; nothing else reacts meanwhile
+      if (!$("efbConfirm").hidden) {
+        if (e.key === "Escape") answer(false);
+        return;
+      }
       if (e.key === "Escape") close();
       else if (e.key === "[" && !typing(e.target)) {
         e.preventDefault();
@@ -661,7 +696,10 @@
     else if (msg.type === "adminSaved") saved(msg.data || {});
     else if (msg.type === "adminResult") result(msg.data || {});
     else if (msg.type === "adminImported") imported(msg.data || {});
-    else if (msg.type === "adminClose") $("adminPanel").hidden = true;
+    else if (msg.type === "adminClose") {
+      answer(false);
+      $("adminPanel").hidden = true;
+    }
   });
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);

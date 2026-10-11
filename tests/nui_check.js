@@ -54,6 +54,7 @@ class FakeElement extends FakeNode {
   click() {
     (this.listeners.click || []).forEach((fn) => fn({ target: this, currentTarget: this, preventDefault() {} }));
   }
+  focus() {}
   append(...nodes) {
     this.children.push(...nodes);
   }
@@ -422,6 +423,45 @@ const collapsed = (elements) => elements.adminPanel.classList.contains("is-colla
     loaded.elements.efbToggle.click();
     check("the toggle still works without storage", collapsed(loaded.elements));
   }
+}
+
+// unsaved changes: a question in the panel, never window.confirm
+{
+  const { ctx, elements, fetched, send, fireDocument } = load();
+  ctx.confirm = () => {
+    throw new Error("window.confirm used");
+  };
+  const posted = (name) => fetched.filter((c) => c.url.endsWith("/" + name)).length;
+  const findIn = (node, pred) => {
+    if (pred(node)) return node;
+    for (const c of node.children || []) {
+      const hit = findIn(c, pred);
+      if (hit) return hit;
+    }
+    return null;
+  };
+  send({ type: "adminOpen", data: adminData });
+  elements.efbClose.click();
+  check("close without changes asks nothing", posted("adminClose") === 1 && elements.efbConfirm.hidden !== false);
+
+  send({ type: "adminOpen", data: adminData });
+  // the panel opens on Status; the Debug switch lives under Allgemein
+  const navItem = findIn(elements.efbNav, (n) =>
+    (n.listeners && (n.listeners.click || []).length > 0) && findIn(n, (x) => x.textContent === "Allgemein"));
+  navItem.click();
+  const sw = findIn(elements.efbContent, (n) => n.tagName === "INPUT" && (n.listeners.change || []).length > 0);
+  sw.checked = true;
+  sw.listeners.change.forEach((fn) => fn({ target: sw }));
+  elements.efbClose.click();
+  check("close with a change asks in the panel", elements.efbConfirm.hidden === false && posted("adminClose") === 1);
+  elements.efbConfirmCancel.click();
+  check("Zurück keeps the panel open", elements.efbConfirm.hidden === true && elements.adminPanel.hidden === false);
+  elements.efbClose.click();
+  fireDocument("keydown", { key: "Escape", target: elements.efbConfirmCancel, preventDefault() {} });
+  check("ESC answers the question, not the panel", elements.efbConfirm.hidden === true && elements.adminPanel.hidden === false);
+  elements.efbClose.click();
+  elements.efbConfirmOk.click();
+  check("Verwerfen closes the panel", elements.adminPanel.hidden === true && posted("adminClose") === 2);
 }
 
 console.log(failed === 0 ? "all checks passed" : `${failed} check(s) failed`);

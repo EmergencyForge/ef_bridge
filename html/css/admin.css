@@ -1084,6 +1084,15 @@ details.efb-card > summary:focus-visible {
   color: var(--text-2);
 }
 
+.efb-btn--danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.efb-btn--danger:hover:not(:disabled) {
+  background: #cf463e;
+}
+
 .efb-btn--ghost:hover:not(:disabled) {
   background: var(--fill-2);
   color: var(--text);
@@ -1285,4 +1294,51 @@ details.efb-card > summary:focus-visible {
   .efb-admin * {
     transition: none !important;
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Question before unsaved changes are lost                           */
+/* ------------------------------------------------------------------ */
+
+.efb-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.efb-confirm[hidden] {
+  display: none;
+}
+
+.efb-confirm__dialog {
+  width: min(420px, 90vw);
+  padding: 20px 20px 16px;
+  border: 1px solid var(--fill-3);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.efb-confirm__title {
+  margin: 0 0 6px;
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
+.efb-confirm__text {
+  margin: 0 0 18px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
+.efb-confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
