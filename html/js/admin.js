@@ -175,7 +175,7 @@
     if (entry.type === "secret") {
       // never filled: the server only says whether a key is set
       const isSet = (state[entry.key] || {}).value === true;
-      const input = el("input", { id, type: "password", class: "efb-input", spellcheck: "false", autocomplete: "new-password", placeholder: isSet ? "gesetzt – zum Ändern neuen Schlüssel eingeben" : "noch kein Schlüssel" });
+      const input = el("input", { id, type: "password", class: "efb-input", spellcheck: "false", autocomplete: "new-password", placeholder: isSet ? "gesetzt, zum Ändern neuen Schlüssel eingeben" : "noch kein Schlüssel" });
       if (typeof changes[entry.key] === "string") input.value = changes[entry.key];
       input.addEventListener("input", () => {
         delete errors[entry.key];
@@ -245,6 +245,7 @@
     if (entry.type === "boolean") return value === true ? "an" : "aus";
     if (value === false || value === null || value === undefined || value === "") return "leer";
     if (Array.isArray(value)) return value.length ? value.join(", ") : "leer";
+    if (entry.labels && entry.labels[value]) return entry.labels[value];
     return String(value);
   }
 
