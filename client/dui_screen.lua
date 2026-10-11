@@ -4,7 +4,8 @@
 DuiScreen = {}
 
 -- Corners TL, TR, BR, BL of the display face in the drawable's space, read
--- from the source .blend files. The face must sit square to the model's
+-- from the source .blend files, plus the half millimetre the _dui variant
+-- sits forward (pipeline/variant.py). The face must sit square to the model's
 -- axes: a tilted face leaves its texels slanted across the screen pixels,
 -- which blurs the DUI. n is the display normal, roll turns the camera so
 -- the display's top is up. dist and fov frame the tablet: further back
@@ -15,13 +16,13 @@ DuiScreen = {}
 local SCREENS = {
     notfpad = {
         n = { 1.0, 0.0, 0.0 }, dist = 0.5, fov = 18.8, roll = 0.0,
-        { 0.0143, -0.12156, 0.0625 }, { 0.0143, 0.10236, 0.0625 },
-        { 0.0143, 0.10236, -0.05935 }, { 0.0143, -0.12156, -0.05935 },
+        { 0.0148, -0.12156, 0.0625 }, { 0.0148, 0.10236, 0.0625 },
+        { 0.0148, 0.10236, -0.05935 }, { 0.0148, -0.12156, -0.05935 },
     },
     firetab = {
         n = { 1.0, 0.0, 0.0 }, dist = 0.5, fov = 23.2, roll = 90.0,
-        { 0.0021, 0.0769, 0.1089 }, { 0.0021, 0.0769, -0.1086 },
-        { 0.0021, -0.0767, -0.1086 }, { 0.0021, -0.0767, 0.1089 },
+        { 0.0026, 0.0769, 0.1089 }, { 0.0026, 0.0769, -0.1086 },
+        { 0.0026, -0.0767, -0.1086 }, { 0.0026, -0.0767, 0.1089 },
     },
 }
 
