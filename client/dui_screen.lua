@@ -14,7 +14,7 @@ DuiScreen = {}
 -- integers to float natives as raw bits.
 local SCREENS = {
     notfpad = {
-        n = { 1.0, 0.0, 0.0 }, dist = 0.18, fov = 50.0, roll = 0.0,
+        n = { 1.0, 0.0, 0.0 }, dist = 0.5, fov = 23.2, roll = 0.0,
         { 0.0143, -0.12156, 0.0625 }, { 0.0143, 0.10236, 0.0625 },
         { 0.0143, 0.10236, -0.05935 }, { 0.0143, -0.12156, -0.05935 },
     },
@@ -50,31 +50,50 @@ function DuiScreen.Center(s)
     return c
 end
 
--- height / width of the display, for the DUI's pixel size
-function DuiScreen.Aspect(s)
-    return dist(s[1], s[4]) / dist(s[1], s[2])
-end
-
-function DuiScreen.Eye(s)
-    local c = DuiScreen.Center(s)
-    return { c[1] + s.n[1] * s.dist, c[2] + s.n[2] * s.dist, c[3] + s.n[3] * s.dist }
-end
-
--- The display corners on screen (0..1) in the close-up. The camera is hard
--- attached and looks straight at the display centre, so this follows from
--- fov, dist, the display size and the screen aspect. Projecting the
--- corners from the prop instead uses its position from the frame before
--- and wobbles while walking.
-function DuiScreen.CloseUp(s, aspect)
-    local half = math.tan(math.rad(s.fov) / 2) * s.dist
-    local center = DuiScreen.Center(s)
-    local right, up = dir(s[1], s[2]), dir(s[4], s[1])
-    local quad = {}
-    for i = 1, 4 do
-        local rel = { s[i][1] - center[1], s[i][2] - center[2], s[i][3] - center[3] }
-        quad[i] = { 0.5 + dot(rel, right) / (2 * half * aspect), 0.5 - dot(rel, up) / (2 * half) }
+-- Places the close-up so the DUI maps one texel onto one screen pixel:
+-- a fraction of a pixel off and every pixel blends two texels, which is
+-- what makes a 3D display soft. Picks an even DUI width near what the
+-- display spans at the model's fov (even keeps the left edge on a pixel
+-- boundary) whose height also lands near whole pixels, tunes the fov so
+-- the display spans exactly that width, and shifts the eye by the leftover
+-- fraction so the top edge sits on a pixel boundary too. Returns the fov,
+-- the DUI size, the eye in the drawable's space and the display corners on
+-- screen (0..1, TL, TR, BR, BL) for the cursor. Past maxWidth the texels
+-- grow larger than pixels and the alignment no longer matters.
+function DuiScreen.Fit(s, rw, rh, maxWidth)
+    local w, h = dist(s[1], s[2]), dist(s[1], s[4])
+    local span = w * rh / (2 * math.tan(math.rad(s.fov) / 2) * s.dist)
+    local width, fov
+    if span > maxWidth then
+        width, fov = maxWidth - maxWidth % 2, s.fov
+    else
+        local base, bestErr = 2 * math.floor(span / 2 + 0.5), nil
+        for k = -12, 12 do
+            local c = base + 2 * k
+            local err = math.abs(c * h / w - math.floor(c * h / w + 0.5)) + math.abs(k) * 0.001
+            if not bestErr or err < bestErr then width, bestErr = c, err end
+        end
+        fov = math.deg(2 * math.atan(w * rh / (2 * s.dist * width)))
     end
-    return quad
+    local px = 2 * math.tan(math.rad(fov) / 2) * s.dist / rh -- one screen pixel at the display
+    local wPx, hPx = w / px, h / px
+    local left, top = (rw - wPx) / 2, (rh - hPx) / 2
+    local x0, y0 = math.floor(left + 0.5), math.floor(top + 0.5)
+    -- moving the eye right moves the display left, moving it up moves it down
+    local sx, sy = (left - x0) * px, (y0 - top) * px
+    local c = DuiScreen.Center(s)
+    local right, up = dir(s[1], s[2]), dir(s[4], s[1])
+    local eye = {}
+    for k = 1, 3 do
+        eye[k] = c[k] + s.n[k] * s.dist + right[k] * sx + up[k] * sy
+    end
+    return {
+        fov = fov, w = width, h = math.floor(width * h / w + 0.5), eye = eye,
+        quad = {
+            { x0 / rw, y0 / rh }, { (x0 + wPx) / rw, y0 / rh },
+            { (x0 + wPx) / rw, (y0 + hPx) / rh }, { x0 / rw, (y0 + hPx) / rh },
+        },
+    }
 end
 
 -- Inverts the perspective map from the unit square onto quad (TL, TR, BR,

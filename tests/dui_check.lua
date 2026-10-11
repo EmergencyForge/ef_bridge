@@ -16,21 +16,29 @@ local function near(a, b, eps) return math.abs(a - b) < (eps or 1e-6) end
 
 dofile(root .. "client/dui_screen.lua")
 
--- screen math
+-- screen math: the close-up maps one DUI texel onto one screen pixel
 do
-    local s = DuiScreen.For("notfpad")
-    local q = DuiScreen.CloseUp(s, 16 / 9)
-    check("notfpad close-up width at 16:9", near(q[2][1] - q[1][1], 0.750, 0.002))
-    check("notfpad close-up height", near(q[4][2] - q[1][2], 0.726, 0.002))
-    local cx = (q[1][1] + q[2][1] + q[3][1] + q[4][1]) / 4
-    local cy = (q[1][2] + q[2][2] + q[3][2] + q[4][2]) / 4
-    check("close-up is centred", near(cx, 0.5, 1e-3) and near(cy, 0.5, 1e-3))
+    local function whole(x) return math.abs(x - math.floor(x + 0.5)) < 1e-6 end
+    for _, m in ipairs({ 'notfpad', 'firetab' }) do
+        local s = DuiScreen.For(m)
+        check(m .. ": screen data are floats", math.type(s.roll) == 'float' and math.type(s.n[1]) == 'float'
+            and math.type(s.dist) == 'float' and math.type(s.fov) == 'float')
+        for _, r in ipairs({ { 1920, 1080 }, { 2560, 1440 }, { 1366, 768 } }) do
+            local f = DuiScreen.Fit(s, r[1], r[2], 2560)
+            local q, tag = f.quad, ("%s %dx%d"):format(m, r[1], r[2])
+            local wPx, hPx = (q[2][1] - q[1][1]) * r[1], (q[4][2] - q[1][2]) * r[2]
+            check(tag .. ": even DUI width, spanned exactly", f.w % 2 == 0 and math.abs(wPx - f.w) < 1e-6)
+            check(tag .. ": DUI height within a tenth of a pixel", math.abs(hPx - f.h) < 0.1)
+            check(tag .. ": edges on pixel boundaries", whole(q[1][1] * r[1]) and whole(q[1][2] * r[2]))
+            check(tag .. ": fov tuned only slightly", math.abs(f.fov - s.fov) < 1.0 and math.type(f.fov) == 'float')
+            local c = DuiScreen.Center(s)
+            check(tag .. ": eye dist in front, shifted under a pixel", near(f.eye[1] - c[1], s.dist, 1e-9)
+                and math.abs(f.eye[2] - c[2]) < 0.001 and math.abs(f.eye[3] - c[3]) < 0.001)
+        end
+    end
+    local big = DuiScreen.Fit(DuiScreen.For('notfpad'), 7680, 4320, 2560)
+    check("8K: DUI width capped, model fov kept", big.w == 2560 and big.fov == DuiScreen.For('notfpad').fov)
     check("unknown model has no screen", DuiScreen.For("prop_cs_tablet") == nil)
-    check("firetab display is wider than tall", DuiScreen.Aspect(DuiScreen.For("firetab")) < 1)
-    check("screen data are floats", math.type(s.roll) == 'float' and math.type(s.n[1]) == 'float' and math.type(s.dist) == 'float'
-        and math.type(s.fov) == 'float')
-    local eye = DuiScreen.Eye(s)
-    check("eye sits dist in front of the display", near(eye[1] - DuiScreen.Center(s)[1], 0.18))
 end
 
 -- cursor mapping: forward through the square-to-quad map, back through UV
@@ -120,17 +128,18 @@ do
     check("camera hard attached with yaw 90", cam and cam[2] == 'local:notfpad_dui' and cam[5] == 90.0)
     check("camera rotation and offsets are floats", cam and math.type(cam[3]) == 'float' and math.type(cam[4]) == 'float'
         and math.type(cam[6]) == 'float' and math.type(cam[7]) == 'float' and math.type(cam[8]) == 'float')
-    check("camera uses the model's fov", called('SetCamFov')[1] and called('SetCamFov')[1][2] == 50.0
+    local fit = DuiScreen.Fit(DuiScreen.For('notfpad'), 1920, 1080, 2560)
+    check("camera uses the fitted fov", called('SetCamFov')[1] and called('SetCamFov')[1][2] == fit.fov
         and math.type(called('SetCamFov')[1][2]) == 'float')
-    check("near clip at 0.9 of the distance", math.abs(called('SetCamNearClip')[1][2] - 0.162) < 1e-9)
+    check("camera sits at the fitted eye", cam and cam[6] == fit.eye[1] and cam[7] == fit.eye[2] and cam[8] == fit.eye[3])
+    check("near clip at 0.9 of the distance", math.abs(called('SetCamNearClip')[1][2] - 0.45) < 1e-9)
     check("input layer switched on", nui('duiInput') and nui('duiInput').active == true)
     check("two timers: session wait and frame blank", #timers == 2 and timers[1].ms == 4000 and timers[2].ms == 10000)
     check("no DUI before the session", #called('CreateDui') == 0)
 
     DuiTablet.OnSession()
     local dui = called('CreateDui')[1]
-    -- the notfpad display shows 1441 px wide at 1920x1080 in the close-up
-    check("DUI as wide as the display on screen", dui and dui[1] == 'https://ignis.test/enotf/' and dui[2] == 1441 and dui[3] == 784)
+    check("DUI sized by the fit", dui and dui[1] == 'https://ignis.test/enotf/' and dui[2] == fit.w and dui[3] == fit.h)
     check("frame blanked after the session (no login pending)", nui('blankTabletFrame') ~= nil)
 
     DuiTablet.Frame()
@@ -145,7 +154,7 @@ do
     DuiTablet.Frame()
     check("no 2D sprite over the display", #called('DrawSprite') == 0)
     local move = called('SendDuiMouseMove')[1]
-    check("cursor in the middle hits the DUI middle", move and move[2] == 720 and move[3] == 392)
+    check("cursor in the middle hits the DUI middle", move and math.abs(move[2] - fit.w / 2) <= 1 and math.abs(move[3] - fit.h / 2) <= 1)
 
     nuiCallbacks['duiInput']({ kind = 'down', button = 'left' }, function() end)
     nuiCallbacks['duiInput']({ kind = 'key', key = 'a', ctrl = false, shift = false }, function() end)
@@ -162,9 +171,9 @@ do
     check("closed", not DuiTablet.IsOpen() and failedWith == nil)
 end
 
--- 4K: the DUI stops at 2560 px, the page would be too costly beyond
+-- 8K: the DUI stops at 2560 px, the page would be too costly beyond
 do
-    res = { 3840, 2160 }
+    res = { 7680, 4320 }
     reset()
     DuiTablet.Begin('eNOTF', 'https://ignis.test/enotf/', false, nil, function() end)
     DuiTablet.OnSession()
@@ -303,8 +312,9 @@ do
     DuiTablet.Begin('FireTab', 'https://ignis.test/einsatz/', true, nil, function() fellBack = true end)
     DuiTablet.OnSession()
     local fdui = called('CreateDui')[1]
-    check("fireTab DUI sized for its own camera", fdui and fdui[2] == 1144 and fdui[3] == 808)
-    check("fireTab camera further back with a narrower fov", called('SetCamFov')[1][2] == 23.2
+    local ffit = DuiScreen.Fit(DuiScreen.For('firetab'), 1920, 1080, 2560)
+    check("fireTab DUI sized by its own fit", fdui and fdui[2] == ffit.w and fdui[3] == ffit.h)
+    check("fireTab camera uses its fitted fov", called('SetCamFov')[1][2] == ffit.fov
         and math.abs(called('SetCamNearClip')[1][2] - 0.45) < 1e-9)
     check("login pending: frame kept after the first session", nui('blankTabletFrame') == nil)
     now = now + 6000

@@ -10,7 +10,7 @@
 DuiTablet = {}
 
 local TXD_NAME = 'ef_bridge_dui'
--- 4K would ask for about 2900 px, past what is worth a browser texture
+-- 8K would ask for about 4700 px, past what is worth a browser texture
 local MAX_WIDTH = 2560
 local EASE_MS = 500
 local SESSION_WAIT_MS = 4000
@@ -57,10 +57,9 @@ end
 -- display (-x). The near clip cuts away the ped's head, which sits between
 -- eye and display in the tablet anim.
 local function startCamera()
-    local s = state.screen
-    local eye = DuiScreen.Eye(s)
+    local s, eye = state.screen, state.fit.eye
     state.cam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true)
-    SetCamFov(state.cam, s.fov)
+    SetCamFov(state.cam, state.fit.fov)
     HardAttachCamToEntity(state.cam, state.prop, 0.0, s.roll, 90.0, eye[1], eye[2], eye[3], true)
     SetCamNearClip(state.cam, s.dist * 0.9)
     RenderScriptCams(true, true, EASE_MS, true, true)
@@ -70,10 +69,7 @@ end
 
 local function startDui()
     if state.dui then return end
-    local rw, rh = GetActiveScreenResolution()
-    local q = DuiScreen.CloseUp(state.screen, rw / rh)
-    state.w = math.min(math.floor((q[2][1] - q[1][1]) * rw + 0.5), MAX_WIDTH)
-    state.h = math.floor(state.w * DuiScreen.Aspect(state.screen) + 0.5)
+    state.w, state.h = state.fit.w, state.fit.h
     state.dui = CreateDui(state.url, state.w, state.h)
     state.createdAt = GetGameTimer()
 end
@@ -91,6 +87,9 @@ function DuiTablet.Begin(tabletType, url, loginPending, netProp, onFail)
         netProp = netProp, loginPending = loginPending, onFail = onFail, sessions = 0,
     }
     local mine = state
+    -- fixed for the session: the DUI keeps its size once created
+    local rw, rh = GetActiveScreenResolution()
+    state.fit = DuiScreen.Fit(state.screen, rw, rh, MAX_WIDTH)
     -- on before the model loads, so ESC still closes the tablet meanwhile
     SendNUIMessage({ type = 'duiInput', active = true })
     -- the tablet can close while the model loads
@@ -193,7 +192,7 @@ function DuiTablet.Frame()
 
     if now < state.settledAt then return end
     local rw, rh = GetActiveScreenResolution()
-    moveMouse(DuiScreen.CloseUp(state.screen, rw / rh), rw, rh)
+    moveMouse(state.fit.quad, rw, rh)
 end
 
 -- A DUI only gets mouse input from the game; keys go to the page as a
