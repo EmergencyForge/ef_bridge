@@ -323,6 +323,30 @@ do
     check("fallback keeps the frame for the window", nui('blankTabletFrame') == nil)
 end
 
+-- the hidden frame's load starts the DUI (fireTab pages never report a session)
+do
+    reset()
+    DuiTablet.Begin('FireTab', 'https://ignis.test/einsatz/', true, nil, function() end)
+    nuiCallbacks['tabletFrameLoaded']({ tabletType = 'eNOTF' }, function() end)
+    check("other tablet's frame load is ignored", #called('CreateDui') == 0)
+    nuiCallbacks['tabletFrameLoaded']({ tabletType = 'FireTab' }, function() end)
+    check("frame load starts the DUI", #called('CreateDui') == 1)
+    nuiCallbacks['tabletLoginDone']({ tabletType = 'FireTab' }, function() end)
+    check("tablet login done reloads the DUI once", #called('SetDuiUrl') == 1)
+    DuiTablet.OnSession()
+    DuiTablet.OnSession()
+    check("later session reports don't reload again", #called('SetDuiUrl') == 1)
+    DuiTablet.Close()
+
+    reset()
+    DuiTablet.Begin('eNOTF', 'https://ignis.test/enotf/', false, nil, function() end)
+    nuiCallbacks['tabletFrameLoaded']({ tabletType = 'eNOTF' }, function() end)
+    DuiTablet.OnSession()
+    check("first session report after the frame load doesn't reload", #called('CreateDui') == 1 and #called('SetDuiUrl') == 0)
+    check("first session report still blanks without a login", nui('blankTabletFrame') ~= nil)
+    DuiTablet.Close()
+end
+
 -- client/main.lua drives the controller
 local printed, notified = {}, {}
 for _, name in ipairs({ 'RegisterCommand', 'RegisterKeyMapping', 'CreateThread', 'SetNuiFocus', 'SetNuiFocusKeepInput',

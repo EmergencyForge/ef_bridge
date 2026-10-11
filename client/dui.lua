@@ -112,11 +112,12 @@ end
 function DuiTablet.OnSession()
     if not state then return end
     state.sessions = state.sessions + 1
-    if state.dui then
+    if not state.dui then
+        startDui()
+    elseif state.sessions >= 2 and not state.signedIn then
         -- reported again after the tablet login: load the page signed in
         SetDuiUrl(state.dui, state.url)
-    else
-        startDui()
+        state.signedIn = true
     end
     if not state.loginPending or state.sessions >= 2 then
         blankFrame()
@@ -194,6 +195,23 @@ function DuiTablet.Frame()
     local rw, rh = GetActiveScreenResolution()
     moveMouse(state.fit.quad, rw, rh)
 end
+
+-- The hidden frame has loaded its page, so the session cookie is there.
+RegisterNUICallback('tabletFrameLoaded', function(data, cb)
+    cb('ok')
+    if state and not state.dui and type(data) == 'table' and data.tabletType == state.tabletType then
+        startDui()
+    end
+end)
+
+-- The tablet login link went through in the hidden frame. Pages that never
+-- report their session (fireTab) only learn it here.
+RegisterNUICallback('tabletLoginDone', function(data, cb)
+    cb('ok')
+    if not state or state.signedIn or type(data) ~= 'table' or data.tabletType ~= state.tabletType then return end
+    state.signedIn = true
+    if state.dui then SetDuiUrl(state.dui, state.url) end
+end)
 
 -- A DUI only gets mouse input from the game; keys go to the page as a
 -- message, ignis 2026.1.2 and newer types them (assets/js/dui-keys.js).

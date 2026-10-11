@@ -212,6 +212,22 @@ function blankFrame(tabletType) {
   if (frame) frame.src = "about:blank";
 }
 
+// A loaded frame means ignis has set its session cookie, so the DUI can
+// start without opening a second session. Not every ignis page reports its
+// session (the fireTab pages don't), the load event comes from all of them.
+[["tabletScreen", "eNOTF"], ["firetabScreen", "FireTab"]].forEach(([id, tabletType]) => {
+  const frame = document.getElementById(id);
+  if (!frame) return;
+  frame.addEventListener("load", () => {
+    if (!frame.src || frame.src === "about:blank") return;
+    fetch(`https://${GetParentResourceName()}/tabletFrameLoaded`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tabletType }),
+    }).catch(() => {});
+  });
+});
+
 // The DUI didn't come up: show the window after all. The frame may be
 // blanked already, then it loads the page again.
 function revealTablet(tabletType, url) {
@@ -243,6 +259,12 @@ function tabletLogin(tabletType, loginUrl) {
     function () {
       // a blank from the DUI may have stopped the login: keep the frame empty
       if (target && frame.src !== "about:blank") frame.src = target;
+      // signed in now; a DUI that started before has to load again
+      fetch(`https://${GetParentResourceName()}/tabletLoginDone`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tabletType }),
+      }).catch(() => {});
     },
     { once: true },
   );

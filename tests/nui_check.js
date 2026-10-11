@@ -242,5 +242,20 @@ for (const [type, frameId, url] of [
   check("left release still forwarded", posts() === before + 1);
 }
 
+// a loaded frame lets the DUI start; the login link tells it to reload
+{
+  const { frames, fetched, send } = load();
+  const posted = (name) => fetched.filter((c) => c.url.endsWith("/" + name)).map((c) => JSON.parse(c.body));
+  frames.tabletScreen.fireLoad();
+  check("frame load is reported with its tablet", posted("tabletFrameLoaded").some((b) => b.tabletType === "eNOTF"));
+  send({ type: "blankTabletFrame", tabletType: "eNOTF" });
+  const before = posted("tabletFrameLoaded").length;
+  frames.tabletScreen.fireLoad();
+  check("a blanked frame's load is not reported", posted("tabletFrameLoaded").length === before);
+  send({ type: "tabletLogin", tabletType: "FireTab", url: loginUrl });
+  frames.firetabScreen.fireLoad();
+  check("login link loaded: reported for the DUI", posted("tabletLoginDone").some((b) => b.tabletType === "FireTab"));
+}
+
 console.log(failed === 0 ? "all checks passed" : `${failed} check(s) failed`);
 process.exit(failed ? 1 : 0);
