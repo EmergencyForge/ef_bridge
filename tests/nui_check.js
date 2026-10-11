@@ -1,6 +1,7 @@
-// Loads the NUI scripts (firetab.js, script.js, master.js, dui.js; same
-// order as master.html) with a fake DOM and checks the tablet login
-// message, the session relay, tablets in hand and the input layer.
+// Loads the NUI scripts (firetab.js, script.js, master.js, admin.js,
+// dui.js; same order as master.html) with a fake DOM and checks the tablet
+// login message, the session relay, tablets in hand, the input layer and
+// the admin panel's sidebar.
 //
 //   node tests/nui_check.js
 const fs = require("fs");
@@ -14,11 +15,62 @@ const js = (name) =>
 const root = {};
 root.parent = root;
 
+// Just enough DOM for admin.js to build its panel: classes, attributes,
+// children and click listeners.
+class FakeNode {}
+
+class FakeElement extends FakeNode {
+  constructor(tag = "div") {
+    super();
+    this.tagName = tag.toUpperCase();
+    this.style = {};
+    this.children = [];
+    this.attributes = {};
+    this.listeners = {};
+    const classes = (this.classes = new Set());
+    this.classList = {
+      add: (...names) => names.forEach((n) => classes.add(n)),
+      remove: (...names) => names.forEach((n) => classes.delete(n)),
+      contains: (n) => classes.has(n),
+      toggle: (n, on = !classes.has(n)) => (on ? classes.add(n) : classes.delete(n), on),
+    };
+  }
+  get className() {
+    return [...this.classes].join(" ");
+  }
+  set className(value) {
+    this.classes.clear();
+    String(value).split(/\s+/).filter(Boolean).forEach((n) => this.classes.add(n));
+  }
+  setAttribute(name, value) {
+    this.attributes[name] = String(value);
+  }
+  getAttribute(name) {
+    return name in this.attributes ? this.attributes[name] : null;
+  }
+  addEventListener(name, fn) {
+    (this.listeners[name] ||= []).push(fn);
+  }
+  click() {
+    (this.listeners.click || []).forEach((fn) => fn({ target: this, currentTarget: this, preventDefault() {} }));
+  }
+  append(...nodes) {
+    this.children.push(...nodes);
+  }
+  replaceChildren(...nodes) {
+    this.children = nodes;
+  }
+}
+
 function makeElement() {
+  return new FakeElement();
+}
+
+function memoryStorage(data = {}) {
   return {
-    style: {},
-    classList: { add() {}, remove() {} },
-    addEventListener() {},
+    data,
+    getItem: (k) => (k in data ? data[k] : null),
+    setItem: (k, v) => (data[k] = String(v)),
   };
 }
 
@@ -45,7 +97,9 @@ function makeFrame(src, page) {
 }
 
 // deferTimers: queue setTimeout callbacks until runTimers() is called
-function load({ deferTimers = false } = {}) {
+// storage: the localStorage stub, "throw" for one that refuses access
+// narrow: whether the (max-width: 900px) query matches
+function load({ deferTimers = false, storage = memoryStorage(), narrow = false } = {}) {
   const listeners = [];
   const logged = [];
   const fetched = [];
@@ -66,7 +120,12 @@ function load({ deferTimers = false } = {}) {
       if (id && timers[id - 1]) timers[id - 1].cancelled = true;
     },
     parent: root,
+    Node: FakeNode,
+    matchMedia: () => ({ matches: narrow, addEventListener() {} }),
   };
+  if (storage === "throw")
+    Object.defineProperty(ctx, "localStorage", { get() { throw new Error("storage disabled"); } });
+  else ctx.localStorage = storage;
   ctx.window = ctx;
   const byName = {};
   ctx.addEventListener = (name, fn) => {
@@ -78,14 +137,17 @@ function load({ deferTimers = false } = {}) {
     firetabScreen: makeFrame("https://ignis.test/einsatz/list.php", ctx),
   };
   const elements = {};
+  const onDocument = {};
   ctx.document = {
     readyState: "complete",
-    addEventListener() {},
+    addEventListener: (name, fn) => (onDocument[name] ||= []).push(fn),
+    createElement: (tag) => new FakeElement(tag),
+    createTextNode: (text) => Object.assign(new FakeNode(), { textContent: text }),
     body: { style: {} },
     getElementById: (id) => frames[id] || (elements[id] ||= makeElement()),
   };
   vm.createContext(ctx);
-  for (const name of ["firetab.js", "script.js", "master.js", "dui.js"])
+  for (const name of ["firetab.js", "script.js", "master.js", "admin.js", "dui.js"])
     vm.runInContext(js(name), ctx, { filename: name });
   vm.runInContext("DEBUG = true", ctx);
 
@@ -95,13 +157,14 @@ function load({ deferTimers = false } = {}) {
   const fire = (name, event) => (byName[name] || []).forEach((fn) => fn(event));
   // ids stay valid for clearTimeout, so run in place instead of shifting
   let next = 0;
+  const fireDocument = (name, event) => (onDocument[name] || []).forEach((fn) => fn(event));
   const runTimers = () => {
     while (next < timers.length) {
       const t = timers[next++];
       if (!t.cancelled) t.fn();
     }
   };
-  return { ctx, frames, elements, logged, fetched, send, fire, runTimers };
+  return { ctx, frames, elements, logged, fetched, send, fire, fireDocument, runTimers };
 }
 
 let failed = 0;
@@ -282,6 +345,83 @@ for (const [type, frameId, url] of [
   open();
   runTimers();
   check("reopening in time cancels the release", frames.tabletScreen.src === url);
+}
+
+// admin panel sidebar: opened the way client/admin.lua does (adminOpen),
+// collapse state in localStorage under efb.sidebar like ignis.sidebar
+const adminData = {
+  schema: [
+    { key: "Debug", scope: "shared", type: "boolean", group: "Allgemein", label: "Debug" },
+    { key: "Ignis.BaseURL", scope: "shared", type: "url", group: "ignis", label: "Adresse", optional: true },
+  ],
+  state: { Debug: { value: false, default: false, changed: false } },
+  status: { version: "1.0.0" },
+};
+const collapsed = (elements) => elements.adminPanel.classList.contains("is-collapsed");
+
+{
+  const storage = memoryStorage();
+  const { elements, send } = load({ storage });
+  send({ type: "adminOpen", data: adminData });
+  const toggle = elements.efbToggle;
+  check("admin panel opens with the sidebar open",
+    elements.adminPanel.hidden === false && elements.efbNav.children.length > 0 &&
+    !collapsed(elements) && toggle.getAttribute("aria-expanded") === "true");
+  toggle.click();
+  check("toggle collapses the sidebar and stores it",
+    collapsed(elements) && storage.getItem("efb.sidebar") === "collapsed" && toggle.getAttribute("aria-expanded") === "false");
+  toggle.click();
+  check("second click opens it again and stores that",
+    !collapsed(elements) && storage.getItem("efb.sidebar") === "open" && toggle.getAttribute("aria-expanded") === "true");
+}
+
+{
+  const { ctx, elements, send, fireDocument } = load();
+  send({ type: "adminOpen", data: adminData });
+  const bracket = (tag) => ({ key: "[", target: ctx.document.createElement(tag), preventDefault() {} });
+  fireDocument("keydown", bracket("button"));
+  check("[ collapses the sidebar", collapsed(elements));
+  for (const tag of ["input", "textarea", "select"]) fireDocument("keydown", bracket(tag));
+  check("[ while typing in a field does nothing", collapsed(elements));
+  fireDocument("keydown", bracket("div"));
+  check("[ opens it again", !collapsed(elements));
+  send({ type: "adminClose" });
+  fireDocument("keydown", bracket("div"));
+  check("[ does nothing while the panel is closed", !collapsed(elements));
+}
+
+{
+  const storage = memoryStorage();
+  const { elements, send } = load({ storage });
+  storage.setItem("efb.sidebar", "collapsed");
+  send({ type: "adminOpen", data: adminData });
+  check("stored collapsed state is applied when the panel opens",
+    collapsed(elements) && elements.efbToggle.getAttribute("aria-expanded") === "false");
+}
+
+{
+  const storage = memoryStorage();
+  const { elements, send } = load({ storage, narrow: true });
+  send({ type: "adminOpen", data: adminData });
+  check("narrow screens start collapsed", collapsed(elements));
+  elements.efbToggle.click();
+  check("opening it on a narrow screen is not stored", !collapsed(elements) && storage.getItem("efb.sidebar") === null);
+}
+
+{
+  let loaded;
+  try {
+    loaded = load({ storage: "throw" });
+    loaded.send({ type: "adminOpen", data: adminData });
+  } catch (e) {
+    loaded = null;
+  }
+  check("storage that throws does not break opening",
+    !!loaded && loaded.elements.adminPanel.hidden === false && !collapsed(loaded.elements));
+  if (loaded) {
+    loaded.elements.efbToggle.click();
+    check("the toggle still works without storage", collapsed(loaded.elements));
+  }
 }
 
 console.log(failed === 0 ? "all checks passed" : `${failed} check(s) failed`);
