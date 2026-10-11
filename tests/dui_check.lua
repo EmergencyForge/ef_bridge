@@ -58,7 +58,7 @@ end
 
 -- natives the controller and client/main.lua use, recorded by name
 local calls, timers = {}, {}
-local now, duiReady, cursor = 1000, false, { 960, 540 }
+local now, duiReady, cursor, res = 1000, false, { 960, 540 }, { 1920, 1080 }
 local nuiCallbacks, handlers, nuiMessages = {}, {}, {}
 local function record(name, ret)
     _G[name] = function(...)
@@ -98,7 +98,7 @@ record('IsDuiAvailable', function() return duiReady end)
 record('CreateRuntimeTxd', 'txd')
 record('GetDuiHandle', 'handle')
 record('DoesEntityExist', true)
-record('GetActiveScreenResolution', function() return 1920, 1080 end)
+record('GetActiveScreenResolution', function() return res[1], res[2] end)
 record('GetNuiCursorPosition', function() return cursor[1], cursor[2] end)
 function GetGameTimer() return now end
 function SetTimeout(ms, fn) timers[#timers + 1] = { ms = ms, fn = fn } end
@@ -129,7 +129,8 @@ do
 
     DuiTablet.OnSession()
     local dui = called('CreateDui')[1]
-    check("DUI 1440 wide at the display's aspect", dui and dui[1] == 'https://ignis.test/enotf/' and dui[2] == 1440 and dui[3] == 784)
+    -- the notfpad display shows 1441 px wide at 1920x1080 in the close-up
+    check("DUI as wide as the display on screen", dui and dui[1] == 'https://ignis.test/enotf/' and dui[2] == 1441 and dui[3] == 784)
     check("frame blanked after the session (no login pending)", nui('blankTabletFrame') ~= nil)
 
     DuiTablet.Frame()
@@ -139,15 +140,12 @@ do
     DuiTablet.Frame()
     local rep = called('AddReplaceTexture')[1]
     check("texture replaced on the _dui model", rep and rep[1] == 'notfpad_dui' and rep[2] == 'notfpad_screen' and rep[3] == 'ef_bridge_dui')
-    check("no sprite during the camera ease", #called('DrawSprite') == 0)
+    check("no cursor mapping during the camera ease", #called('SendDuiMouseMove') == 0)
     now = now + 700
     DuiTablet.Frame()
-    local sprite = called('DrawSprite')[1]
-    check("sprite centred over the display", sprite and math.abs(sprite[3] - 0.5) < 1e-3 and math.abs(sprite[4] - 0.5) < 1e-3)
-    check("sprite size from the camera", sprite and math.abs(sprite[5] - 0.750) < 0.002 and math.abs(sprite[6] - 0.726) < 0.002)
+    check("no 2D sprite over the display", #called('DrawSprite') == 0)
     local move = called('SendDuiMouseMove')[1]
-    -- the painted display is not quite a rectangle, so the middle may sit a pixel off
-    check("cursor in the middle hits the DUI middle", move and math.abs(move[2] - 720) <= 1 and math.abs(move[3] - 391) <= 1)
+    check("cursor in the middle hits the DUI middle", move and move[2] == 720 and move[3] == 392)
 
     nuiCallbacks['duiInput']({ kind = 'down', button = 'left' }, function() end)
     nuiCallbacks['duiInput']({ kind = 'key', key = 'a', ctrl = false, shift = false }, function() end)
@@ -162,6 +160,18 @@ do
     check("close switches the input layer off", nui('duiInput') and nui('duiInput').active == false)
     check("frame not blanked twice", nui('blankTabletFrame') == nil)
     check("closed", not DuiTablet.IsOpen() and failedWith == nil)
+end
+
+-- 4K: the DUI stops at 2560 px, the page would be too costly beyond
+do
+    res = { 3840, 2160 }
+    reset()
+    DuiTablet.Begin('eNOTF', 'https://ignis.test/enotf/', false, nil, function() end)
+    DuiTablet.OnSession()
+    local dui = called('CreateDui')[1]
+    check("DUI width capped at 2560", dui and dui[2] == 2560 and dui[3] == 1393)
+    DuiTablet.Close()
+    res = { 1920, 1080 }
 end
 
 -- closed before the session: late timers do nothing
@@ -292,6 +302,10 @@ do
     local fellBack = false
     DuiTablet.Begin('FireTab', 'https://ignis.test/einsatz/', true, nil, function() fellBack = true end)
     DuiTablet.OnSession()
+    local fdui = called('CreateDui')[1]
+    check("fireTab DUI sized for its own camera", fdui and fdui[2] == 1144 and fdui[3] == 808)
+    check("fireTab camera further back with a narrower fov", called('SetCamFov')[1][2] == 23.2
+        and math.abs(called('SetCamNearClip')[1][2] - 0.45) < 1e-9)
     check("login pending: frame kept after the first session", nui('blankTabletFrame') == nil)
     now = now + 6000
     DuiTablet.Frame()

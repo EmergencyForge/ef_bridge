@@ -1,15 +1,17 @@
 -- Tablet "In der Hand": the page runs in a DUI. Its texture replaces the
 -- screen of a local <model>_dui prop (a replacement hits every prop of a
--- model on this client, so the own tablet gets its own model name), and
--- in the close-up a 2D sprite lies exactly over the display: on the 3D
--- surface the DUI stays soft, as a sprite it is as sharp as the NUI.
+-- model on this client, so the own tablet gets its own model name), and a
+-- hard attached camera looks straight at the display. The DUI is as wide
+-- as the display shows on screen, so each DUI pixel lands on one screen
+-- pixel and the page stays sharp on the 3D surface.
 -- The NUI keeps doing the session work in its hidden frame (tablet login,
 -- character identification). NUI and DUI share the cookie store, so the
 -- DUI sees the same ignis session.
 DuiTablet = {}
 
 local TXD_NAME = 'ef_bridge_dui'
-local WIDTH = 1440 -- what the NUI frame gives ignis, its pages are laid out for that
+-- 4K would ask for about 2900 px, past what is worth a browser texture
+local MAX_WIDTH = 2560
 local EASE_MS = 500
 local SESSION_WAIT_MS = 4000
 local READY_WAIT_MS = 5000
@@ -63,13 +65,15 @@ local function startCamera()
     SetCamNearClip(state.cam, s.dist * 0.9)
     RenderScriptCams(true, true, EASE_MS, true, true)
     -- while the camera eases in, the display still moves on screen
-    state.overlayAt = GetGameTimer() + EASE_MS + 100
+    state.settledAt = GetGameTimer() + EASE_MS + 100
 end
 
 local function startDui()
     if state.dui then return end
-    state.w = WIDTH
-    state.h = math.floor(WIDTH * DuiScreen.Aspect(state.screen) + 0.5)
+    local rw, rh = GetActiveScreenResolution()
+    local q = DuiScreen.CloseUp(state.screen, rw / rh)
+    state.w = math.min(math.floor((q[2][1] - q[1][1]) * rw + 0.5), MAX_WIDTH)
+    state.h = math.floor(state.w * DuiScreen.Aspect(state.screen) + 0.5)
     state.dui = CreateDui(state.url, state.w, state.h)
     state.createdAt = GetGameTimer()
 end
@@ -145,15 +149,6 @@ function DuiTablet.Close(keepFrame)
     end
 end
 
-local function drawSprite(q, rw, rh)
-    local cx = (q[1][1] + q[2][1] + q[3][1] + q[4][1]) / 4
-    local cy = (q[1][2] + q[2][2] + q[3][2] + q[4][2]) / 4
-    local wx, wy = (q[2][1] - q[1][1]) * rw, (q[2][2] - q[1][2]) * rh
-    local hx, hy = (q[4][1] - q[1][1]) * rw, (q[4][2] - q[1][2]) * rh
-    DrawSprite(TXD_NAME, state.txn, cx, cy, math.sqrt(wx * wx + wy * wy) / rw, math.sqrt(hx * hx + hy * hy) / rh,
-        math.deg(math.atan(wy, wx)), 255, 255, 255, 255)
-end
-
 local function moveMouse(q, rw, rh)
     local mx, my = GetNuiCursorPosition()
     local u, v = DuiScreen.UV(q, mx / rw, my / rh)
@@ -196,11 +191,9 @@ function DuiTablet.Frame()
         AddReplaceTexture(state.model .. '_dui', state.model .. '_screen', TXD_NAME, state.txn)
     end
 
-    if now < state.overlayAt then return end
+    if now < state.settledAt then return end
     local rw, rh = GetActiveScreenResolution()
-    local quad = DuiScreen.CloseUp(state.screen, rw / rh)
-    drawSprite(quad, rw, rh)
-    moveMouse(quad, rw, rh)
+    moveMouse(DuiScreen.CloseUp(state.screen, rw / rh), rw, rh)
 end
 
 -- A DUI only gets mouse input from the game; keys go to the page as a
