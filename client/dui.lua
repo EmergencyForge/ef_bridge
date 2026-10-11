@@ -10,7 +10,6 @@ DuiTablet = {}
 
 local TXD_NAME = 'ef_bridge_dui'
 local WIDTH = 1440 -- what the NUI frame gives ignis, its pages are laid out for that
-local FOV = 50.0
 local EASE_MS = 500
 local SESSION_WAIT_MS = 4000
 local READY_WAIT_MS = 5000
@@ -59,7 +58,7 @@ local function startCamera()
     local s = state.screen
     local eye = DuiScreen.Eye(s)
     state.cam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true)
-    SetCamFov(state.cam, FOV)
+    SetCamFov(state.cam, s.fov)
     HardAttachCamToEntity(state.cam, state.prop, 0.0, s.roll, 90.0, eye[1], eye[2], eye[3], true)
     SetCamNearClip(state.cam, s.dist * 0.9)
     RenderScriptCams(true, true, EASE_MS, true, true)
@@ -199,7 +198,7 @@ function DuiTablet.Frame()
 
     if now < state.overlayAt then return end
     local rw, rh = GetActiveScreenResolution()
-    local quad = DuiScreen.CloseUp(state.screen, FOV, rw / rh)
+    local quad = DuiScreen.CloseUp(state.screen, rw / rh)
     drawSprite(quad, rw, rh)
     moveMouse(quad, rw, rh)
 end

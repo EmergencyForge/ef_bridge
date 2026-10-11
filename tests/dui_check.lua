@@ -19,7 +19,7 @@ dofile(root .. "client/dui_screen.lua")
 -- screen math
 do
     local s = DuiScreen.For("notfpad")
-    local q = DuiScreen.CloseUp(s, 50.0, 16 / 9)
+    local q = DuiScreen.CloseUp(s, 16 / 9)
     check("notfpad close-up width at 16:9", near(q[2][1] - q[1][1], 0.750, 0.002))
     check("notfpad close-up height", near(q[4][2] - q[1][2], 0.726, 0.002))
     local cx = (q[1][1] + q[2][1] + q[3][1] + q[4][1]) / 4
@@ -27,7 +27,8 @@ do
     check("close-up is centred", near(cx, 0.5, 1e-3) and near(cy, 0.5, 1e-3))
     check("unknown model has no screen", DuiScreen.For("prop_cs_tablet") == nil)
     check("firetab display is wider than tall", DuiScreen.Aspect(DuiScreen.For("firetab")) < 1)
-    check("screen data are floats", math.type(s.roll) == 'float' and math.type(s.n[1]) == 'float' and math.type(s.dist) == 'float')
+    check("screen data are floats", math.type(s.roll) == 'float' and math.type(s.n[1]) == 'float' and math.type(s.dist) == 'float'
+        and math.type(s.fov) == 'float')
     local eye = DuiScreen.Eye(s)
     check("eye sits dist in front of the display", near(eye[1] - DuiScreen.Center(s)[1], 0.18))
 end
@@ -119,6 +120,8 @@ do
     check("camera hard attached with yaw 90", cam and cam[2] == 'local:notfpad_dui' and cam[5] == 90.0)
     check("camera rotation and offsets are floats", cam and math.type(cam[3]) == 'float' and math.type(cam[4]) == 'float'
         and math.type(cam[6]) == 'float' and math.type(cam[7]) == 'float' and math.type(cam[8]) == 'float')
+    check("camera uses the model's fov", called('SetCamFov')[1] and called('SetCamFov')[1][2] == 50.0
+        and math.type(called('SetCamFov')[1][2]) == 'float')
     check("near clip at 0.9 of the distance", math.abs(called('SetCamNearClip')[1][2] - 0.162) < 1e-9)
     check("input layer switched on", nui('duiInput') and nui('duiInput').active == true)
     check("two timers: session wait and frame blank", #timers == 2 and timers[1].ms == 4000 and timers[2].ms == 10000)
@@ -126,7 +129,7 @@ do
 
     DuiTablet.OnSession()
     local dui = called('CreateDui')[1]
-    check("DUI 1440 wide at the display's aspect", dui and dui[1] == 'https://ignis.test/enotf/' and dui[2] == 1440 and dui[3] == 783)
+    check("DUI 1440 wide at the display's aspect", dui and dui[1] == 'https://ignis.test/enotf/' and dui[2] == 1440 and dui[3] == 784)
     check("frame blanked after the session (no login pending)", nui('blankTabletFrame') ~= nil)
 
     DuiTablet.Frame()
