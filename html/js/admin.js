@@ -46,7 +46,6 @@
     server: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
     close: '<path d="M6 6l12 12M18 6L6 18"/>',
     refresh: '<path d="M20 12a8 8 0 1 1-2.34-5.66L20 8"/><path d="M20 3v5h-5"/>',
-    chevron: '<path d="M9 6l6 6-6 6"/>',
     check: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.8"/>',
     alert: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/>',
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.5v.01"/>',
@@ -74,8 +73,8 @@
 
   // Only fixed markup from ICONS goes through innerHTML here, never
   // anything the server sent.
-  function icon(name) {
-    const span = el("span", { class: name === "ignis" ? "efb-icon efb-icon--fill" : "efb-icon", "aria-hidden": "true" });
+  function icon(name, extra) {
+    const span = el("span", { class: (name === "ignis" ? "efb-icon efb-icon--fill" : "efb-icon") + (extra ? " " + extra : ""), "aria-hidden": "true" });
     span.innerHTML =
       name === "ignis"
         ? `<svg viewBox="0 0 96 96" fill="currentColor"><path fill-rule="evenodd" d="${IGNIS_MARK}"/></svg>`
@@ -201,12 +200,12 @@
     const tags = el("span", { class: "efb-field__tags" });
 
     if (entry.type === "secret") {
-      tags.append(el("span", { class: "efb-chip " + (s.value ? "efb-chip--ok" : "efb-chip--off"), text: resets.has(entry.key) ? "wird gelöscht" : s.value ? "gesetzt" : "nicht gesetzt" }));
+      tags.append(el("span", { class: "efb-chip efb-chip--dot" + (s.value ? " efb-chip--ok" : ""), text: resets.has(entry.key) ? "wird gelöscht" : s.value ? "gesetzt" : "nicht gesetzt" }));
     }
-    if (entry.restart) tags.append(el("span", { class: "efb-tag efb-tag--warn", text: "nach Neustart" }));
-    if (entry.scope === "server") tags.append(el("span", { class: "efb-tag", text: "nur Server" }));
+    if (entry.restart) tags.append(el("span", { class: "efb-chip efb-chip--warn", text: "nach Neustart" }));
+    if (entry.scope === "server") tags.append(el("span", { class: "efb-chip efb-chip--category", text: "nur Server" }));
     if (Object.prototype.hasOwnProperty.call(changes, entry.key) || resets.has(entry.key)) {
-      tags.append(el("span", { class: "efb-tag efb-tag--pending", text: "ungespeichert" }));
+      tags.append(el("span", { class: "efb-chip efb-chip--primary", text: "ungespeichert" }));
     } else if (s.changed) {
       tags.append(
         el("button", {
@@ -255,8 +254,8 @@
 
   // off: a switched-off module is no error, so it gets a grey chip
   function chip(ok, yes, no, off) {
-    const tone = ok ? "efb-chip--ok" : off ? "efb-chip--off" : "efb-chip--bad";
-    return el("span", { class: "efb-chip " + tone, text: ok ? yes : no });
+    const tone = ok ? " efb-chip--ok" : off ? "" : " efb-chip--danger";
+    return el("span", { class: "efb-chip efb-chip--dot" + tone, text: ok ? yes : no });
   }
 
   function action(name, label) {
@@ -272,8 +271,15 @@
     });
   }
 
-  function card(iconName, title, ...children) {
-    return el("section", { class: "efb-card" }, el("div", { class: "efb-card__head" }, icon(iconName), el("h3", { text: title })), el("div", { class: "efb-card__body" }, ...children));
+  function card(iconName, title, rows, actions) {
+    const buttons = actions.filter(Boolean);
+    return el(
+      "section",
+      { class: "efb-card" },
+      el("div", { class: "efb-card__header" }, el("h2", { class: "efb-card__title" }, icon(iconName), title)),
+      el("div", { class: "efb-card__body" }, ...rows),
+      buttons.length ? el("div", { class: "efb-card__footer" }, ...buttons) : null,
+    );
   }
 
   function row(label, value) {
@@ -289,32 +295,39 @@
       card(
         "server",
         "Allgemein",
-        row("Version", status.version || "?"),
-        row("Ressource", status.resource || "?"),
-        row("Framework", status.framework ? chip(true, status.framework, "") : chip(false, "", "keins gefunden")),
-        row("Datenbank", chip(status.database, "verbunden", "keine (oxmysql)")),
+        [
+          row("Version", status.version || "?"),
+          row("Ressource", status.resource || "?"),
+          row("Framework", status.framework ? chip(true, status.framework, "") : chip(false, "", "keins gefunden")),
+          row("Datenbank", chip(status.database, "verbunden", "keine (oxmysql)")),
+        ],
+        [],
       ),
       card(
         "ignis",
         "ignis",
-        row("API-Schlüssel", chip(status.ignisKeySet, "gesetzt", "fehlt (unter ignis eintragen)")),
-        row("EMD-Sync", chip(status.emd, "an", "aus", true)),
-        row("eNOTF-Abrechnung", chip(status.billing, "an", "aus", true)),
-        el("div", { class: "efb-card__actions" }, action("testIgnis", "Verbindung testen"), status.emd ? action("emdSync", "EMD jetzt abgleichen") : null),
+        [
+          row("API-Schlüssel", chip(status.ignisKeySet, "gesetzt", "fehlt (unter ignis eintragen)")),
+          row("EMD-Sync", chip(status.emd, "an", "aus", true)),
+          row("eNOTF-Abrechnung", chip(status.billing, "an", "aus", true)),
+        ],
+        [action("testIgnis", "Verbindung testen"), status.emd ? action("emdSync", "EMD jetzt abgleichen") : null],
       ),
       card(
         "scale",
         "Lex",
-        row("Abgleich", chip(lex.enabled, "an", "aus", true)),
-        row("API-Schlüssel", chip(lex.keySet, "gesetzt", "fehlt (unter Lex eintragen)")),
-        row("Letzter vollständiger Abgleich", lex.running ? "läuft gerade …" : last ? `${last.at} (${last.seconds} s)` : "noch keiner"),
-        last ? row("Personen", `${last.persons.seen} gesehen, ${last.persons.created} neu, ${last.persons.updated} geändert, ${last.persons.skipped} übersprungen`) : null,
-        last ? row("Fahrzeuge", `${last.vehicles.seen} gesehen, ${last.vehicles.created} neu, ${last.vehicles.updated} geändert, ${last.retired} abgemeldet`) : null,
-        lex.lastLive ? row("Zuletzt beim Einloggen", `${lex.lastLive.at}, ${lex.lastLive.characters} Charakter(e)`) : null,
-        lex.lastError ? el("p", { class: "efb-field__error" }, icon("alert"), el("span", { text: `${lex.lastError.at}: ${lex.lastError.message}` })) : null,
-        el("div", { class: "efb-card__actions" }, action("testLex", "Verbindung testen"), lex.enabled && lex.keySet ? action("lexSync", "Jetzt vollständig abgleichen") : null),
+        [
+          row("Abgleich", chip(lex.enabled, "an", "aus", true)),
+          row("API-Schlüssel", chip(lex.keySet, "gesetzt", "fehlt (unter Lex eintragen)")),
+          row("Letzter vollständiger Abgleich", lex.running ? "läuft gerade …" : last ? `${last.at} (${last.seconds} s)` : "noch keiner"),
+          last ? row("Personen", `${last.persons.seen} gesehen, ${last.persons.created} neu, ${last.persons.updated} geändert, ${last.persons.skipped} übersprungen`) : null,
+          last ? row("Fahrzeuge", `${last.vehicles.seen} gesehen, ${last.vehicles.created} neu, ${last.vehicles.updated} geändert, ${last.retired} abgemeldet`) : null,
+          lex.lastLive ? row("Zuletzt beim Einloggen", `${lex.lastLive.at}, ${lex.lastLive.characters} Charakter(e)`) : null,
+          lex.lastError ? el("p", { class: "efb-field__error" }, icon("alert"), el("span", { text: `${lex.lastError.at}: ${lex.lastError.message}` })) : null,
+        ],
+        [action("testLex", "Verbindung testen"), lex.enabled && lex.keySet ? action("lexSync", "Jetzt vollständig abgleichen") : null],
       ),
-      el("p", { class: "efb-hint" }, icon("info"), el("span", { text: "Alle Einstellungen liegen auf dem Server, config-Dateien gibt es nicht mehr. Änderungen gelten sofort, außer bei Einträgen mit „nach Neustart“ (restart ef_bridge). API-Schlüssel lassen sich setzen und löschen, aber nicht mehr anzeigen." })),
+      el("div", { class: "efb-alert", role: "note" }, icon("info", "efb-alert__icon"), el("span", { class: "efb-alert__body", text: "Alle Einstellungen liegen auf dem Server, config-Dateien gibt es nicht mehr. Änderungen gelten sofort, außer bei Einträgen mit „nach Neustart“ (restart ef_bridge). API-Schlüssel lassen sich setzen und löschen, aber nicht mehr anzeigen." })),
     );
     return view;
   }
@@ -323,13 +336,20 @@
   // RENDER
   // ==========================================
 
+  // the sidebar heading a group sits under, also the breadcrumb's first step
+  function section(group) {
+    return group === STATUS_GROUP ? "Übersicht" : group === IMPORT_GROUP ? "Werkzeuge" : "Einstellungen";
+  }
+
   function renderNav() {
     const nav = $("efbNav");
     nav.replaceChildren();
-    const firstSetting = schema.length ? schema[0].group : null;
+    let heading = null;
     for (const group of groups()) {
-      const heading = group === STATUS_GROUP ? "Übersicht" : group === firstSetting ? "Einstellungen" : group === IMPORT_GROUP ? "Werkzeuge" : null;
-      if (heading) nav.append(el("div", { class: "efb-nav__label", text: heading }));
+      if (section(group) !== heading) {
+        heading = section(group);
+        nav.append(el("div", { class: "efb-sidebar__group", text: heading }));
+      }
       const dirty = schema.some((e) => e.group === group && (Object.prototype.hasOwnProperty.call(changes, e.key) || resets.has(e.key)));
       const bad = schema.some((e) => e.group === group && errors[e.key]);
       nav.append(
@@ -337,8 +357,9 @@
           "button",
           {
             type: "button",
-            class: "efb-nav__item" + (group === current ? " is-active" : ""),
+            class: "efb-sidebar__link",
             "aria-current": group === current ? "page" : null,
+            "data-tooltip": group,
             onclick: () => {
               current = group;
               renderNav();
@@ -346,55 +367,58 @@
             },
           },
           icon((GROUP_INFO[group] || {}).icon),
-          el("span", { class: "efb-nav__item-label", text: group }),
-          bad ? el("span", { class: "efb-dot efb-dot--bad", "aria-label": "Fehler" }) : dirty ? el("span", { class: "efb-dot", "aria-label": "ungespeichert" }) : null,
+          el("span", { class: "efb-sidebar__label", text: group }),
+          bad ? el("span", { class: "efb-dot efb-dot--bad", role: "img", "aria-label": "Fehler" }) : dirty ? el("span", { class: "efb-dot", role: "img", "aria-label": "ungespeichert" }) : null,
         ),
       );
     }
   }
 
-  function renderContent() {
-    const content = $("efbContent");
+  // breadcrumb and page header of the current group
+  function pageHeader(actions) {
     const info = GROUP_INFO[current] || {};
-    content.replaceChildren(
+    return [
+      el("nav", { class: "efb-breadcrumb", "aria-label": "Pfad" }, el("span", { class: "efb-breadcrumb__item", text: section(current) }), el("span", { class: "efb-breadcrumb__item", "aria-current": "page", text: current })),
       el(
-        "div",
-        { class: "efb-page" },
-        el("div", { class: "efb-page__icon" }, icon(info.icon)),
-        el("div", {}, el("h2", { class: "efb-content__title", text: current }), info.text ? el("p", { class: "efb-page__text", text: info.text }) : null),
+        "header",
+        { class: "efb-page-header" },
+        el("div", { class: "efb-page-header__copy" }, el("h1", { class: "efb-page-header__title", text: current }), info.text ? el("p", { class: "efb-page-header__description", text: info.text }) : null),
+        actions ? el("div", { class: "efb-page-header__actions" }, actions) : null,
       ),
-    );
-    if (current === STATUS_GROUP) {
-      content.append(statusView());
-      return;
-    }
-    if (current === IMPORT_GROUP) {
-      content.append(importView());
-      return;
-    }
+    ];
+  }
+
+  function settingsView() {
     const entries = schema.filter((e) => e.group === current);
     const basic = entries.filter((e) => !e.advanced);
-    if (basic.length) content.append(el("section", { class: "efb-card" }, ...basic.map(field)));
     const advanced = entries.filter((e) => e.advanced);
+    const cards = [];
+    if (basic.length) cards.push(el("section", { class: "efb-card" }, el("div", { class: "efb-card__body efb-card__body--flush" }, ...basic.map(field))));
     if (advanced.length) {
       const box = el(
         "details",
-        { class: "efb-advanced" },
-        el("summary", {}, icon("chevron"), "Erweitert", el("span", { class: "efb-advanced__count", text: advanced.length === 1 ? "1 Einstellung" : `${advanced.length} Einstellungen` })),
+        { class: "efb-card" },
+        el("summary", { class: "efb-card__header" }, el("h2", { class: "efb-card__title" }, "Erweitert", el("span", { class: "efb-card__subtitle", text: advanced.length === 1 ? "1 Einstellung" : `${advanced.length} Einstellungen` }))),
+        el("div", { class: "efb-card__body efb-card__body--flush" }, ...advanced.map(field)),
       );
       if (advanced.some((e) => errors[e.key] || Object.prototype.hasOwnProperty.call(changes, e.key))) box.open = true;
-      for (const entry of advanced) box.append(field(entry));
-      content.append(box);
+      cards.push(box);
     }
+    return cards;
+  }
+
+  function renderContent() {
+    const nodes = current === STATUS_GROUP ? [...pageHeader(), statusView()] : current === IMPORT_GROUP ? importView() : [...pageHeader(), ...settingsView()];
+    $("efbContent").replaceChildren(...nodes);
   }
 
   // ==========================================
   // IMPORT
   // ==========================================
 
+  // Page header (reading the folder needs no input, so it sits up there),
+  // the paste card and, after a preview, the result card.
   function importView() {
-    const body = el("div", { class: "efb-card__body" });
-    const view = el("section", { class: "efb-card efb-import" }, body);
     const area = el("textarea", { class: "efb-input efb-input--list efb-import__text", rows: 10, spellcheck: "false", placeholder: "Inhalt einer config.lua, config_server.lua oder settings-export.json hier einfügen" });
     area.value = importText;
     area.addEventListener("input", () => {
@@ -406,23 +430,30 @@
       post("adminImport", { text: fromFolder ? "" : importText, apply });
     };
 
-    body.append(
-      el("p", { class: "efb-field__help", text: "Übernimmt Einstellungen aus alten config-Dateien von ignisTab oder ef_bridge und aus Exporten (efbridge export). Erst kommt eine Vorschau, übernommen wird erst nach „Übernehmen“. Liegen die Dateien im Ordner der Ressource, liest „Aus dem Ordner lesen“ sie direkt." }),
-      area,
+    const nodes = [
+      ...pageHeader(el("button", { type: "button", class: "efb-btn efb-btn--secondary", text: "Aus dem Ordner lesen", onclick: () => { importText = ""; send(false, true); } })),
       el(
-        "div",
-        { class: "efb-card__actions" },
-        el("button", { type: "button", class: "efb-btn efb-btn--secondary", text: "Vorschau", onclick: () => send(false, false) }),
-        el("button", { type: "button", class: "efb-btn efb-btn--ghost", text: "Aus dem Ordner lesen", onclick: () => { importText = ""; send(false, true); } }),
+        "section",
+        { class: "efb-card" },
+        el(
+          "div",
+          { class: "efb-card__body efb-import" },
+          el("p", { class: "efb-card__text", text: "Übernimmt Einstellungen aus alten config-Dateien von ignisTab oder ef_bridge und aus Exporten (efbridge export). Erst kommt eine Vorschau, übernommen wird erst nach „Übernehmen“. Liegen die Dateien im Ordner der Ressource, liest „Aus dem Ordner lesen“ sie direkt." }),
+          area,
+        ),
+        el("div", { class: "efb-card__footer" }, el("button", { type: "button", class: "efb-btn efb-btn--secondary", text: "Vorschau", onclick: () => send(false, false) })),
       ),
-    );
+    ];
 
     const r = importResult;
-    if (!r) return view;
+    if (!r) return nodes;
+    const body = el("div", { class: "efb-card__body efb-import" });
+    const view = el("section", { class: "efb-card" }, body);
+    nodes.push(view);
 
     if (r.found === 0) {
       body.append(el("p", { class: "efb-field__error" }, icon("alert"), el("span", { text: "Nichts gefunden: weder eingefügter Text noch config-Dateien im Ordner." })));
-      return view;
+      return nodes;
     }
     for (const problem of r.problems || []) body.append(el("p", { class: "efb-field__error" }, icon("alert"), el("span", { text: problem })));
     for (const note of r.notes || []) body.append(el("p", { class: "efb-field__help", text: "Altes Format: " + note }));
@@ -436,12 +467,13 @@
         rows.append(el("tr", {}, el("td", {}, el("span", { text: `${item.group} › ${item.label}` })), el("td", { text: item.from }), el("td", { text: item.to })));
       }
       table.append(rows);
-      body.append(table, el("div", { class: "efb-card__actions" }, el("button", { type: "button", class: "efb-btn efb-btn--primary", text: `${r.preview.length} übernehmen`, onclick: () => send(true, importText === "") })));
+      body.append(table);
+      view.append(el("div", { class: "efb-card__footer" }, el("button", { type: "button", class: "efb-btn efb-btn--primary", text: `${r.preview.length} übernehmen`, onclick: () => send(true, importText === "") })));
     } else {
       body.append(el("p", { class: "efb-field__help", text: "Alles schon so eingestellt, es gibt nichts zu übernehmen." }));
     }
     for (const err of r.errors || []) body.append(el("p", { class: "efb-field__error" }, icon("alert"), el("span", { text: `${err.label}: ${err.message}` })));
-    return view;
+    return nodes;
   }
 
   function imported(data) {
@@ -453,16 +485,12 @@
     render();
   }
 
+  // topbar chips and the version under the sidebar; Lex, EMD and the
+  // database are on the status page
   function renderHeader() {
-    const lex = status.lex || {};
     $("efbVersion").textContent = status.version ? "Version " + status.version : "";
     $("efbVersion").hidden = !status.version;
-    $("efbChips").replaceChildren(
-      chip(status.ignisKeySet, "ignis", "ignis ohne Schlüssel"),
-      chip(lex.enabled && lex.keySet, "Lex", lex.enabled ? "Lex ohne Schlüssel" : "Lex aus", !lex.enabled),
-      chip(status.emd, "EMD-Sync", "EMD-Sync aus", true),
-      chip(status.database, "Datenbank", "keine Datenbank"),
-    );
+    $("efbChips").replaceChildren(chip(status.framework, status.framework, "kein Framework"), chip(status.ignisKeySet, "ignis", "ignis ohne Schlüssel"));
   }
 
   function renderFooter() {
@@ -490,6 +518,53 @@
   }
 
   // ==========================================
+  // SIDEBAR
+  // ==========================================
+
+  // Collapsed or open, kept like ignis keeps ignis.sidebar. CEF may refuse
+  // localStorage (even reading the property can throw), the panel works
+  // without it.
+  const SIDEBAR_KEY = "efb.sidebar";
+  const NARROW = "(max-width: 900px)";
+
+  function storedCollapsed() {
+    try {
+      return localStorage.getItem(SIDEBAR_KEY) === "collapsed";
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function narrow() {
+    return window.matchMedia(NARROW).matches;
+  }
+
+  function setCollapsed(collapsed) {
+    $("adminPanel").classList.toggle("is-collapsed", collapsed);
+    $("efbToggle").setAttribute("aria-expanded", collapsed ? "false" : "true");
+  }
+
+  // narrow screens collapse on their own, that is no choice to remember
+  function applySidebar() {
+    setCollapsed(narrow() || storedCollapsed());
+  }
+
+  function toggleSidebar() {
+    const collapsed = !$("adminPanel").classList.contains("is-collapsed");
+    setCollapsed(collapsed);
+    if (narrow()) return;
+    try {
+      localStorage.setItem(SIDEBAR_KEY, collapsed ? "collapsed" : "open");
+    } catch (e) {
+      // no storage: the next open starts with the sidebar open
+    }
+  }
+
+  function typing(target) {
+    return !!target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable === true);
+  }
+
+  // ==========================================
   // OPEN / SAVE / CLOSE
   // ==========================================
 
@@ -501,6 +576,7 @@
     resets = new Set();
     errors = {};
     if (!groups().includes(current)) current = STATUS_GROUP;
+    applySidebar();
     $("adminPanel").hidden = false;
     render();
   }
@@ -561,8 +637,16 @@
       if (pending() > 0 && !window.confirm("Ungespeicherte Änderungen verwerfen und neu laden?")) return;
       post("adminRefresh");
     });
+    $("efbToggle").addEventListener("click", toggleSidebar);
+    window.matchMedia(NARROW).addEventListener("change", applySidebar);
+    applySidebar();
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && !$("adminPanel").hidden) close();
+      if ($("adminPanel").hidden) return;
+      if (e.key === "Escape") close();
+      else if (e.key === "[" && !typing(e.target)) {
+        e.preventDefault();
+        toggleSidebar();
+      }
     });
   }
 

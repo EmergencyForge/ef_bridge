@@ -77,29 +77,34 @@
         </div>
     </div>
 
-    <!-- Admin panel (/efbridge), filled by js/admin.js -->
+    <!-- Admin panel (/efbridge), filled by js/admin.js. Built like the ignis
+         shell: topbar, collapsible sidebar, content with a sticky save bar. -->
     <div class="efb-admin" id="adminPanel" hidden>
-        <div class="efb-panel" role="dialog" aria-modal="true" aria-labelledby="efbTitle">
-            <header class="efb-header">
-                <div class="efb-brand"><img src="img/ef-mark.png" alt=""></div>
-                <div class="efb-header__text">
-                    <h1 class="efb-header__title" id="efbTitle">ef_bridge</h1>
-                    <div class="efb-header__meta"><span>Einstellungen</span><span id="efbVersion" hidden></span></div>
-                </div>
-                <div class="efb-header__chips" id="efbChips"></div>
-                <span class="efb-header__spacer"></span>
-                <button type="button" class="efb-btn efb-btn--ghost" id="efbRefresh">Neu laden</button>
-                <button type="button" class="efb-btn efb-btn--ghost efb-btn--icon" id="efbClose" aria-label="Schließen (ESC)">×</button>
+        <div class="efb-app" role="dialog" aria-modal="true" aria-labelledby="efbTitle">
+            <header class="efb-topbar">
+                <button type="button" class="efb-topbar__toggle" id="efbToggle" aria-expanded="true" aria-controls="efbSidebar" aria-label="Navigation ein- oder ausklappen" data-tooltip="Navigation ein- oder ausklappen ([)">
+                    <span class="efb-burger" aria-hidden="true"><span></span><span></span><span></span></span>
+                </button>
+                <span class="efb-topbar__mark" aria-hidden="true"><img src="img/ef-mark.png" alt=""></span>
+                <span class="efb-topbar__title" id="efbTitle">ef_bridge</span>
+                <span class="efb-topbar__meta">Einstellungen</span>
+                <div class="efb-topbar__chips" id="efbChips"></div>
+                <span class="efb-topbar__spacer"></span>
+                <button type="button" class="efb-btn efb-btn--ghost efb-btn--sm" id="efbRefresh">Neu laden</button>
+                <button type="button" class="efb-btn efb-btn--ghost efb-btn--icon efb-btn--sm" id="efbClose" aria-label="Schließen (ESC)">×</button>
             </header>
-            <div class="efb-body">
-                <nav class="efb-nav" id="efbNav" aria-label="Bereiche"></nav>
-                <main class="efb-content" id="efbContent"></main>
+            <div class="efb-sidebar" id="efbSidebar">
+                <nav class="efb-sidebar__nav" id="efbNav" aria-label="Bereiche"></nav>
+                <div class="efb-sidebar__version" id="efbVersion" hidden></div>
             </div>
-            <footer class="efb-footer">
-                <span class="efb-footer__pending" id="efbPending"></span>
-                <button type="button" class="efb-btn efb-btn--ghost" id="efbDiscard" disabled>Verwerfen</button>
-                <button type="button" class="efb-btn efb-btn--primary" id="efbSave" disabled>Speichern</button>
-            </footer>
+            <main class="efb-main">
+                <div class="efb-page" id="efbContent"></div>
+                <footer class="efb-actionbar">
+                    <span class="efb-actionbar__status" id="efbPending"></span>
+                    <button type="button" class="efb-btn efb-btn--ghost" id="efbDiscard" disabled>Verwerfen</button>
+                    <button type="button" class="efb-btn efb-btn--primary" id="efbSave" disabled>Speichern</button>
+                </footer>
+            </main>
         </div>
         <div class="efb-toast" id="efbToast" role="status" hidden></div>
     </div>
