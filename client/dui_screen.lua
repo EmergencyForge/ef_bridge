@@ -14,7 +14,7 @@ DuiScreen = {}
 -- integers to float natives as raw bits.
 local SCREENS = {
     notfpad = {
-        n = { 1.0, 0.0, 0.0 }, dist = 0.5, fov = 23.2, roll = 0.0,
+        n = { 1.0, 0.0, 0.0 }, dist = 0.5, fov = 18.8, roll = 0.0,
         { 0.0143, -0.12156, 0.0625 }, { 0.0143, 0.10236, 0.0625 },
         { 0.0143, 0.10236, -0.05935 }, { 0.0143, -0.12156, -0.05935 },
     },
