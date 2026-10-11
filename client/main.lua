@@ -346,13 +346,16 @@ function OpenTablet(tabletType)
 
     local url = BuildURL(config.Path or '')
 
-    SendNUIMessage({
-        type = "openTablet",
-        tabletType = tabletType,
-        characterData = charData,
-        url = url,
-        hidden = hand
-    })
+    -- a kept DUI still holds the page, the hidden frame has nothing to do
+    if not (hand and DuiTablet.HasKept(tabletType)) then
+        SendNUIMessage({
+            type = "openTablet",
+            tabletType = tabletType,
+            characterData = charData,
+            url = url,
+            hidden = hand
+        })
+    end
 
     if Config.Debug then
         print("Tablet opened with URL:", url)
@@ -392,7 +395,8 @@ function CloseTablet()
 
     SendNUIMessage({
         type = "closeTablet",
-        tabletType = closingType
+        tabletType = closingType,
+        keepMinutes = Config.Tablets[closingType] and Config.Tablets[closingType].KeepMinutes
     })
 
     currentTabletType = nil
@@ -563,5 +567,6 @@ AddEventHandler('onResourceStop', function(resourceName)
             StopTabletAnimation()
             DeleteTabletProp()
         end
+        DuiTablet.ReleaseAll()
     end
 end)

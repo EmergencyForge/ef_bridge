@@ -125,6 +125,7 @@ Die Namen sind die, die `efbridge get/set` versteht. Im Panel stehen sie in den 
 | `RequiredItem` | Name des Gegenstands | `tablet` |
 | `UseProp` | Tablet als Gegenstand in der Hand zeigen | an |
 | `Display` | Darstellung: Fenster (`window`) oder in der Hand auf dem Tablet-Modell mit Nahansicht (`hand`). Tippen in der Hand braucht ignis 2026.1.2 oder neuer. | `window` |
+| `KeepMinutes` | Wie lange die Seite nach dem Schließen geladen bleibt (5 bis 45). Wer in dieser Zeit wieder öffnet, macht genau dort weiter. | `15` |
 | `Path` | Seite in ignis, die das Tablet öffnet | `enotf/overview.php` / `einsatz/list.php` |
 | `Command` | Chatbefehl zum Öffnen (nach Neustart) | `enotf` / `firetab` |
 | `OpenKey` | Standardtaste, leer heißt keine Taste vorbelegt (nach Neustart) | `F9` / leer |

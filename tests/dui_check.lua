@@ -80,7 +80,12 @@ local function called(name)
     for _, c in ipairs(calls) do if c.name == name then out[#out + 1] = c.args end end
     return out
 end
-local function reset() calls, timers, nuiMessages = {}, {}, {} end
+local function clear() calls, timers, nuiMessages = {}, {}, {} end
+-- kept DUIs would carry over into the next block
+local function reset()
+    if DuiTablet then DuiTablet.ReleaseAll() end
+    clear()
+end
 local function nui(kind)
     for _, m in ipairs(nuiMessages) do if m.type == kind then return m end end
 end
@@ -164,8 +169,9 @@ do
     reset()
     DuiTablet.Close()
     check("close removes the replacement", #called('RemoveReplaceTexture') == 1)
-    check("close destroys DUI, camera and local prop", #called('DestroyDui') == 1 and #called('DestroyCam') == 1
-        and called('DeleteEntity')[1][1] == 'local:notfpad_dui')
+    check("close keeps the ready DUI, drops camera and local prop", #called('DestroyDui') == 0 and #called('DestroyCam') == 1
+        and called('DeleteEntity')[1][1] == 'local:notfpad_dui' and DuiTablet.HasKept('eNOTF'))
+    check("kept for the tablet's KeepMinutes", timers[#timers] and timers[#timers].ms == 15 * 60000)
     check("close switches the input layer off", nui('duiInput') and nui('duiInput').active == false)
     check("frame not blanked twice", nui('blankTabletFrame') == nil)
     check("closed", not DuiTablet.IsOpen() and failedWith == nil)
@@ -181,6 +187,52 @@ do
     check("DUI width capped at 2560", dui and dui[2] == 2560 and dui[3] == 1393)
     DuiTablet.Close()
     res = { 1920, 1080 }
+end
+
+-- a kept DUI is picked up again, released after the keep time
+do
+    reset()
+    duiReady = true
+    DuiTablet.Begin('eNOTF', 'https://ignis.test/enotf/', false, nil, function() end)
+    DuiTablet.OnSession()
+    DuiTablet.Frame()
+    DuiTablet.Close()
+    local firstKeep = timers[#timers]
+    clear()
+    DuiTablet.Begin('eNOTF', 'https://ignis.test/enotf/', false, nil, function() end)
+    check("reopening reuses the kept DUI", #called('CreateDui') == 0 and not DuiTablet.HasKept('eNOTF'))
+    now = now + 700
+    DuiTablet.Frame()
+    check("reused DUI goes back on the model", #called('AddReplaceTexture') == 1 and #called('CreateRuntimeTextureFromDuiHandle') == 0)
+    check("reused DUI takes the cursor right away", #called('SendDuiMouseMove') == 1)
+    DuiTablet.Close()
+    firstKeep.fn()
+    check("an old keep timer releases nothing", #called('DestroyDui') == 0 and DuiTablet.HasKept('eNOTF'))
+    timers[#timers].fn()
+    check("released after the keep time", #called('DestroyDui') == 1 and not DuiTablet.HasKept('eNOTF'))
+
+    -- a resolution change makes the kept DUI the wrong size
+    DuiTablet.Begin('eNOTF', 'https://ignis.test/enotf/', false, nil, function() end)
+    DuiTablet.OnSession()
+    DuiTablet.Frame()
+    DuiTablet.Close()
+    clear()
+    res = { 2560, 1440 }
+    check("other resolution: kept DUI no longer fits", not DuiTablet.HasKept('eNOTF'))
+    DuiTablet.Begin('eNOTF', 'https://ignis.test/enotf/', false, nil, function() end)
+    check("other resolution: the old DUI goes, a new one comes", #called('DestroyDui') == 1)
+    DuiTablet.Close()
+    res = { 1920, 1080 }
+
+    -- the fallback to the window never keeps a DUI
+    reset()
+    duiReady = false
+    DuiTablet.Begin('eNOTF', 'https://ignis.test/enotf/', false, nil, function() end)
+    DuiTablet.OnSession()
+    now = now + 6000
+    DuiTablet.Frame()
+    check("fallback destroys the DUI", #called('DestroyDui') == 1 and not DuiTablet.HasKept('eNOTF'))
+    duiReady = false
 end
 
 -- closed before the session: late timers do nothing
@@ -392,8 +444,27 @@ check("hand: session starts the DUI", #called('CreateDui') == 1)
 check("hand: frame blanked without a login", nui('blankTabletFrame') ~= nil)
 reset()
 CloseTablet()
-check("hand: close cleans up the DUI", #called('DestroyDui') == 1 and not DuiTablet.IsOpen())
+check("hand: close cleans up a DUI that never showed", #called('DestroyDui') == 1 and not DuiTablet.IsOpen())
 check("hand: close still tells the NUI", nui('closeTablet') ~= nil)
+
+-- a DUI that came up is kept; reopening goes on without the hidden frame
+loadClient('hand', true)
+reset()
+duiReady = true
+OpenTablet('eNOTF')
+session()
+DuiTablet.Frame()
+CloseTablet()
+check("hand: a ready DUI stays after closing", #called('DestroyDui') == 0 and DuiTablet.HasKept('eNOTF'))
+check("hand: the NUI learns the keep time", nui('closeTablet') and nui('closeTablet').keepMinutes == 15)
+clear()
+OpenTablet('eNOTF')
+check("hand: reopening skips the hidden frame", opened() == nil and #called('CreateDui') == 0)
+check("hand: reopened tablet takes input", nui('duiInput') and nui('duiInput').active == true)
+CloseTablet()
+function GetCurrentResourceName() return 'ef_bridge' end
+handlers['onResourceStop']('ef_bridge')
+check("hand: resource stop releases kept DUIs", #called('DestroyDui') == 1 and not DuiTablet.HasKept('eNOTF'))
 
 loadClient('hand', true, nil, true)
 reset()

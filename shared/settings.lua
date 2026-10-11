@@ -22,6 +22,7 @@ local function tablet(name, label)
         { key = base .. 'RequiredItem', scope = 'shared', type = 'string', group = group, label = 'Gegenstand', pattern = '^[%w_%-]+$', max = 60 },
         { key = base .. 'UseProp', scope = 'shared', type = 'boolean', group = group, label = 'Tablet in der Hand zeigen' },
         { key = base .. 'Display', scope = 'shared', type = 'select', group = group, label = 'Darstellung', options = { 'window', 'hand' }, labels = { window = 'Fenster', hand = 'In der Hand' }, help = 'In der Hand: auf dem Tablet-Modell mit Nahansicht. Tippen braucht ignis 2026.1.2 oder neuer.' },
+        { key = base .. 'KeepMinutes', scope = 'shared', type = 'number', group = group, label = 'Seite im Hintergrund halten (Minuten)', help = 'So lange bleibt die Seite nach dem Schließen geladen, beim Öffnen geht es genau dort weiter. Danach lädt sie neu.', min = 5, max = 45 },
         { key = base .. 'Path', scope = 'shared', type = 'string', group = group, label = 'Seite in ignis', help = 'Pfad hinter der ignis-Adresse.', pattern = '^[%w_%-%./%?=&]*$', max = 120 },
         { key = base .. 'Command', scope = 'shared', type = 'string', group = group, label = 'Chatbefehl', pattern = '^[%w_%-]+$', max = 32, restart = true },
         { key = base .. 'OpenKey', scope = 'shared', type = 'string', group = group, label = 'Standardtaste', help = 'Zum Beispiel F9. Leer: keine Taste vorbelegt. Spieler können sie selbst ändern.', pattern = '^[%w_]*$', max = 20, optional = true, restart = true },

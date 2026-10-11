@@ -199,6 +199,10 @@ for _, name in ipairs({ 'eNOTF', 'FireTab' }) do
     check(name .. ": Display takes hand", entry and V(entry, 'hand') == 'hand')
     check(name .. ": Display rejects other values", entry and V(entry, 'nui') == nil)
     check(name .. ": Display has German labels", entry and entry.labels and entry.labels.window == 'Fenster' and entry.labels.hand == 'In der Hand')
+    local keep = by['Tablets.' .. name .. '.KeepMinutes']
+    check(name .. ": KeepMinutes setting exists", keep ~= nil and keep.type == 'number' and keep.scope == 'shared')
+    check(name .. ": KeepMinutes defaults to 15", Config.Tablets[name].KeepMinutes == 15)
+    check(name .. ": KeepMinutes takes 5 to 45 only", keep and V(keep, 5) == 5 and V(keep, 45) == 45 and V(keep, 4) == nil and V(keep, 46) == nil)
 end
 local jobs = V(by['Tablets.eNOTF.AllowedJobs'], { ' ambulance ', '', 'doj' })
 check("list trims and drops empty lines", jobs and #jobs == 2 and jobs[1] == 'ambulance')

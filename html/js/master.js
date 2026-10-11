@@ -102,6 +102,7 @@ window.addEventListener("message", function (event) {
 
   if (data.type === "openTablet") {
     const tabletType = data.tabletType; // "eNOTF" or "FireTab"
+    stopRelease(tabletType);
     const charData = data.characterData;
     const url = data.url;
 
@@ -152,6 +153,7 @@ window.addEventListener("message", function (event) {
         `[Master] closeTablet message for ${reqType}, ignored; current=${curType}`,
       );
     }
+    scheduleRelease(data.tabletType, data.keepMinutes);
   }
 
   else if (data.type === "tabletLogin") {
@@ -204,6 +206,23 @@ function frameOf(tabletType) {
 function loadFresh(tabletType, url) {
   const frame = document.getElementById(frameOf(tabletType));
   if (frame && url) frame.src = url;
+}
+
+// After closing, the page stays loaded for KeepMinutes, so reopening goes
+// on where it was left; then the frame is emptied and stops talking to
+// ignis, the next opening loads fresh.
+const releaseTimers = {};
+
+function scheduleRelease(tabletType, minutes) {
+  if (!tabletType || typeof minutes !== "number") return;
+  stopRelease(tabletType);
+  releaseTimers[frameOf(tabletType)] = setTimeout(() => blankFrame(tabletType), minutes * 60000);
+}
+
+function stopRelease(tabletType) {
+  const id = frameOf(tabletType);
+  if (releaseTimers[id]) clearTimeout(releaseTimers[id]);
+  delete releaseTimers[id];
 }
 
 // The DUI runs the page now; blank the frame so it doesn't run twice.

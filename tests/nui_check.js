@@ -61,7 +61,10 @@ function load({ deferTimers = false } = {}) {
       fetched.push({ url, body: opts && opts.body });
       return Promise.resolve();
     },
-    setTimeout: (fn) => (deferTimers ? timers.push(fn) : fn()),
+    setTimeout: (fn) => (deferTimers ? timers.push({ fn }) : (fn(), 0)),
+    clearTimeout: (id) => {
+      if (id && timers[id - 1]) timers[id - 1].cancelled = true;
+    },
     parent: root,
   };
   ctx.window = ctx;
@@ -90,8 +93,13 @@ function load({ deferTimers = false } = {}) {
   const send = (data, source = root) =>
     listeners.forEach((fn) => fn({ data, source }));
   const fire = (name, event) => (byName[name] || []).forEach((fn) => fn(event));
+  // ids stay valid for clearTimeout, so run in place instead of shifting
+  let next = 0;
   const runTimers = () => {
-    while (timers.length) timers.shift()();
+    while (next < timers.length) {
+      const t = timers[next++];
+      if (!t.cancelled) t.fn();
+    }
   };
   return { ctx, frames, elements, logged, fetched, send, fire, runTimers };
 }
@@ -255,6 +263,25 @@ for (const [type, frameId, url] of [
   send({ type: "tabletLogin", tabletType: "FireTab", url: loginUrl });
   frames.firetabScreen.fireLoad();
   check("login link loaded: reported for the DUI", posted("tabletLoginDone").some((b) => b.tabletType === "FireTab"));
+}
+
+// window: the page stays loaded for KeepMinutes after closing, then the frame empties
+{
+  const { frames, send, runTimers } = load({ deferTimers: true });
+  const url = "https://ignis.test/enotf/overview.php";
+  const open = () => send({ type: "openTablet", tabletType: "eNOTF", url, characterData: { firstName: "A", lastName: "B" } });
+  open();
+  runTimers();
+  send({ type: "closeTablet", tabletType: "eNOTF", keepMinutes: 15 });
+  check("closed window keeps its page at first", frames.tabletScreen.src === url);
+  runTimers();
+  check("after the keep time the frame empties", frames.tabletScreen.src === "about:blank");
+  open();
+  runTimers();
+  send({ type: "closeTablet", tabletType: "eNOTF", keepMinutes: 15 });
+  open();
+  runTimers();
+  check("reopening in time cancels the release", frames.tabletScreen.src === url);
 }
 
 console.log(failed === 0 ? "all checks passed" : `${failed} check(s) failed`);

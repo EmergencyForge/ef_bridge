@@ -20,6 +20,33 @@ local BLANK_WAIT_MS = 10000
 local txd = nil
 local textureCount = 0
 local state = nil
+-- DUIs kept after closing, by tablet type. Reopening picks the page up as
+-- it was left, like the window keeps its frame; KeepMinutes ends it.
+local kept = {}
+
+local function release(tabletType)
+    local k = kept[tabletType]
+    if not k then return end
+    kept[tabletType] = nil
+    DestroyDui(k.dui)
+end
+
+function DuiTablet.ReleaseAll()
+    for tabletType in pairs(kept) do release(tabletType) end
+end
+
+local function fitFor(tabletType)
+    local rw, rh = GetActiveScreenResolution()
+    return DuiScreen.Fit(DuiScreen.For(Config.Tablets[tabletType].Prop.model), rw, rh, MAX_WIDTH)
+end
+
+-- A kept DUI only fits while the screen resolution is the same.
+function DuiTablet.HasKept(tabletType)
+    local k = kept[tabletType]
+    if not k then return false end
+    local fit = fitFor(tabletType)
+    return k.w == fit.w and k.h == fit.h
+end
 
 function DuiTablet.Supports(model)
     return DuiScreen.For(model) ~= nil
@@ -88,8 +115,16 @@ function DuiTablet.Begin(tabletType, url, loginPending, netProp, onFail)
     }
     local mine = state
     -- fixed for the session: the DUI keeps its size once created
-    local rw, rh = GetActiveScreenResolution()
-    state.fit = DuiScreen.Fit(state.screen, rw, rh, MAX_WIDTH)
+    state.fit = fitFor(tabletType)
+    if DuiTablet.HasKept(tabletType) then
+        local k = kept[tabletType]
+        kept[tabletType] = nil
+        state.dui, state.w, state.h, state.txn = k.dui, k.w, k.h, k.txn
+        -- the page is signed in and the frame was never loaded
+        state.blanked, state.signedIn = true, true
+    else
+        release(tabletType)
+    end
     -- on before the model loads, so ESC still closes the tablet meanwhile
     SendNUIMessage({ type = 'duiInput', active = true })
     -- the tablet can close while the model loads
@@ -141,8 +176,17 @@ function DuiTablet.Close(keepFrame)
         RenderScriptCams(false, true, EASE_MS, true, true)
         DestroyCam(s.cam, false)
     end
-    if s.txn then RemoveReplaceTexture(s.model .. '_dui', s.model .. '_screen') end
-    if s.dui then DestroyDui(s.dui) end
+    if s.replaced then RemoveReplaceTexture(s.model .. '_dui', s.model .. '_screen') end
+    if s.dui and s.txn and not keepFrame then
+        local k = { dui = s.dui, w = s.w, h = s.h, txn = s.txn }
+        kept[s.tabletType] = k
+        SetTimeout(math.floor((Config.Tablets[s.tabletType].KeepMinutes or 15) * 60000), function()
+            if kept[s.tabletType] == k then release(s.tabletType) end
+        end)
+    elseif s.dui then
+        -- never came up, or the window takes over: nothing worth keeping
+        DestroyDui(s.dui)
+    end
     if s.prop and DoesEntityExist(s.prop) then DeleteEntity(s.prop) end
     if not keepFrame and not s.blanked then
         SendNUIMessage({ type = 'blankTabletFrame', tabletType = s.tabletType })
@@ -188,7 +232,10 @@ function DuiTablet.Frame()
         textureCount = textureCount + 1
         state.txn = 'screen' .. textureCount
         CreateRuntimeTextureFromDuiHandle(txd, state.txn, GetDuiHandle(state.dui))
+    end
+    if not state.replaced then
         AddReplaceTexture(state.model .. '_dui', state.model .. '_screen', TXD_NAME, state.txn)
+        state.replaced = true
     end
 
     if now < state.settledAt then return end

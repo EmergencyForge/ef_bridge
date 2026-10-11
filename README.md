@@ -74,6 +74,7 @@ Pro Tablet lässt sich im Panel unter „Darstellung“ wählen, ob es als Fenst
 - Tippen braucht ignis 2026.1.2 oder neuer, mit älteren Versionen geht nur Klicken.
 - Bildschirmdaten gibt es für die mitgelieferten Modelle `notfpad` und `firetab`. Mit einem anderen Modell öffnet das Tablet als Fenster.
 - Konsole: `efbridge set Tablets.eNOTF.Display hand` (oder `window`).
+- Nach dem Schließen bleibt die Seite eine Weile geladen, wer wieder öffnet, macht dort weiter. Wie lange, steht unter „Seite im Hintergrund halten“ (5 bis 45 Minuten, Standard 15).
 
 ## Tablet-Login
 
